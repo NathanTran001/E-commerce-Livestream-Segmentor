@@ -43,7 +43,7 @@ def main():
     # Argument parsing #################################################################
     args = get_args()
 
-    video_path = 'Testing-Video2.mp4'
+    video_path = 'I Have Nothing  August Đỗ Hải Đăng.mp4'
     cap_width = args.width
     cap_height = args.height
 
@@ -224,6 +224,7 @@ def main():
     # cv.destroyAllWindows()
     ############### Gud Code ################
 
+
 def process_video(video_path):
     cap = cv.VideoCapture(video_path)
 
@@ -243,26 +244,30 @@ def process_video(video_path):
     timestamps = []
     frame_rate = cap.get(cv.CAP_PROP_FPS)
 
+    frame_skip = 5
     frame_count = 0
+
     while True:
         ret, image = cap.read()
         if not ret:
             break
 
-        image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
-        results = hands.process(image)
+        # Skip frames for speed
+        if frame_count % frame_skip == 0:
+            image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
+            results = hands.process(image)
 
-        if results.multi_hand_landmarks is not None:
-            for hand_landmarks in results.multi_hand_landmarks:
-                landmark_list = calc_landmark_list(image, hand_landmarks)
-                pre_processed_landmark_list = pre_process_landmark(landmark_list)
+            if results.multi_hand_landmarks:
+                for hand_landmarks in results.multi_hand_landmarks:
+                    landmark_list = calc_landmark_list(image, hand_landmarks)
+                    pre_processed_landmark_list = pre_process_landmark(landmark_list)
 
-                hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
+                    hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
 
-                if keypoint_classifier_labels[hand_sign_id] == "Peace":
-                    timestamp = frame_count / frame_rate
-                    timestamps.append(timestamp)
-                    print(f"Peace sign detected at {timestamp:.2f} seconds")
+                    if keypoint_classifier_labels[hand_sign_id] == "Peace":
+                        timestamp = frame_count / frame_rate
+                        timestamps.append(timestamp)
+                        print(f"Peace sign detected at {timestamp:.2f} seconds")
 
         frame_count += 1
 
