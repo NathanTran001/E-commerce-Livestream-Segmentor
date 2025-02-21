@@ -4,8 +4,12 @@ import csv
 import copy
 import argparse
 import itertools
+import subprocess
 from collections import Counter
 from collections import deque
+
+from moviepy import VideoFileClip
+from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
 
 import cv2
 import cv2 as cv
@@ -48,10 +52,8 @@ def main():
     if camera_mode:
         run_with_camera()
     else:
-        video_path = 'Live.mp4'
-
-        timestamps = process_video(video_path)
-        print("Peace sign timestamps:", timestamps)
+        video_path = 'Threshold.mp4'
+        process_video(video_path)
     # APP ENDS #################################################
 
     end_time = time.perf_counter()
@@ -73,16 +75,25 @@ def process_video(video_path):
 
     keypoint_classifier = KeyPointClassifier()
 
-    with open('hand_gesture_recognizer/model/keypoint_classifier/keypoint_classifier_label.csv', encoding='utf-8-sig') as f:
+    with open('hand_gesture_recognizer/model/keypoint_classifier/keypoint_classifier_label.csv',
+              encoding='utf-8-sig') as f:
         keypoint_classifier_labels = [row[0] for row in csv.reader(f)]
 
-    timestamps = []
+    timestamps_start = []
+    timestamps_end = []
+    timestamps_start_raw = []
+    timestamps_end_raw = []
     frame_rate = cap.get(cv.CAP_PROP_FPS)
 
     frame_skip = 5
     frame_count = 0
+    end_detected = False
+    timestamp = 0
+    timestamp_previous = 0
 
-    while True:
+    # monitor(cap, hands)
+
+    while True and not end_detected:
         ret, image = cap.read()
         if not ret:
             break
@@ -101,13 +112,81 @@ def process_video(video_path):
 
                     if keypoint_classifier_labels[hand_sign_id] == "Peace":
                         timestamp = frame_count / frame_rate
-                        timestamps.append(timestamp)
-                        print(f"Peace sign detected at {timestamp:.2f} seconds")
+                        timestamps_start.append(timestamp)
+                    if keypoint_classifier_labels[hand_sign_id] == "Open" and len(timestamps_start) != 0:
+                        timestamp = frame_count / frame_rate
+                        if len(timestamps_end) == 0:  # If list is empty
+                            timestamps_end.append(timestamp)
+                        else:
+                            if abs(timestamps_end[0] - timestamp) < 3:  # If still the same batch
+                                timestamps_end.append(timestamp)
+                                if len(timestamps_end) == 3:
+                                    end_detected = True
+                            else:   # If a different batch
+                                timestamps_end.clear()
+                                timestamps_end.append(timestamp)
 
+        # print(f"Starts after loop: {timestamps_start}")
+        # if len(timestamps_start) <= 3:
+        #     print("Start deleted")
+        #     timestamps_start.clear()
+        # if len(timestamps_end) <= 3:
+        #     timestamps_end.clear()
+        # else:
+        #     end_detected = True
         frame_count += 1
 
     cap.release()
-    print("Processing complete.")
+
+    print("starts: ")
+    print(timestamps_start)
+
+    timestamps_start = normalize_timestamps(timestamps_start)
+    timestamps_end = normalize_timestamps(timestamps_end)
+    print("starts: ")
+    print(timestamps_start)
+    print("end: ")
+    print(timestamps_end)
+    if not timestamps_start:
+        print("No start points found")
+        return
+    segment_name = 1
+    for idx, point_to_start in enumerate(timestamps_start):
+        if len(timestamps_start) >= 2 and len(timestamps_start) > idx + 1:
+            subclip(video_path, point_to_start, timestamps_start[idx + 1], f"{segment_name}.mp4")
+            # ffmpeg_extract_subclip(video_path, point_to_start, timestamps_start[idx + 1],f"{segment_name}.mp4")
+            segment_name = segment_name + 1
+    print(f"start point of last clip: {len(timestamps_start) - 1}")
+    start_time = timestamps_start[len(timestamps_start) - 1]
+    if len(timestamps_end) > 0:
+        print(f"end point of last clip: {timestamps_end[0]}")
+        end_time = timestamps_end[0]
+        subclip(video_path, start_time, end_time, f"{segment_name}.mp4")
+        # ffmpeg_extract_subclip(video_path, start_time, end_time, f"{segment_name}.mp4")
+    else:
+        subclip(video_path, start_time, VideoFileClip(video_path).duration, f"{segment_name}.mp4")
+        # ffmpeg_extract_subclip(video_path, start_time, VideoFileClip(video_path).duration, f"{segment_name}.mp4")
+
+
+def subclip(video_path, start_time, end_time, output_file):
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-ss", str(start_time),
+        "-to", str(end_time),
+        "-c", "copy",
+        f"{output_file}"
+    ])
+
+
+def normalize_timestamps(timestamps):
+    indices_for_removal = []
+    for idx, timestamp in enumerate(timestamps):
+        if len(timestamps) > idx + 1 and len(timestamps) >= 2:
+            if abs(timestamp - timestamps[idx + 1]) < 10:
+                indices_for_removal.append(idx)
+
+    timestamps = [timestamp for i, timestamp in enumerate(timestamps) if i not in indices_for_removal]
     return timestamps
 
 
@@ -256,7 +335,6 @@ def run_with_camera():
 
     cap.release()
     cv.destroyAllWindows()
-
 
 
 def select_mode(key, mode):
@@ -615,6 +693,127 @@ def draw_info(image, fps, mode, number):
                        cv.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1,
                        cv.LINE_AA)
     return image
+
+
+def monitor(cap, hands):
+    ############### Gud Code ################
+    use_brect = True
+    point_history_classifier = PointHistoryClassifier()
+    keypoint_classifier = KeyPointClassifier()
+    # Read labels ###########################################################
+    with open('hand_gesture_recognizer/model/keypoint_classifier/keypoint_classifier_label.csv',
+              encoding='utf-8-sig') as f:
+        keypoint_classifier_labels = csv.reader(f)
+        keypoint_classifier_labels = [
+            row[0] for row in keypoint_classifier_labels
+        ]
+    with open(
+            'hand_gesture_recognizer/model/point_history_classifier/point_history_classifier_label.csv',
+            encoding='utf-8-sig') as f:
+        point_history_classifier_labels = csv.reader(f)
+        point_history_classifier_labels = [
+            row[0] for row in point_history_classifier_labels
+        ]
+
+    # FPS Measurement ########################################################
+    cvFpsCalc = CvFpsCalc(buffer_len=10)
+
+    # Coordinate history #################################################################
+    history_length = 16
+    point_history = deque(maxlen=history_length)
+
+    # Finger gesture history ################################################
+    finger_gesture_history = deque(maxlen=history_length)
+
+    #  ########################################################################
+    mode = 0
+
+    while True:
+        fps = cvFpsCalc.get()
+
+        # Process Key (ESC: end) #################################################
+        key = cv.waitKey(10)
+        if key == 27:  # ESC
+            break
+        number, mode = select_mode(key, mode)
+
+        # Camera capture #####################################################
+        ret, image = cap.read()
+        if not ret:
+            break
+        image = cv.flip(image, 1)  # Mirror display
+        debug_image = copy.deepcopy(image)
+
+        # Detection implementation #############################################################
+        image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
+
+        image.flags.writeable = False
+        results = hands.process(image)
+        image.flags.writeable = True
+
+        #  ####################################################################
+        if results.multi_hand_landmarks is not None:
+            for hand_landmarks, handedness in zip(results.multi_hand_landmarks,
+                                                  results.multi_handedness):
+                # Bounding box calculation
+                brect = calc_bounding_rect(debug_image, hand_landmarks)
+                # Landmark calculation
+                landmark_list = calc_landmark_list(debug_image, hand_landmarks)
+
+                # Conversion to relative coordinates / normalized coordinates
+                pre_processed_landmark_list = pre_process_landmark(
+                    landmark_list)
+                pre_processed_point_history_list = pre_process_point_history(
+                    debug_image, point_history)
+                # Write to the dataset file
+                logging_csv(number, mode, pre_processed_landmark_list,
+                            pre_processed_point_history_list)
+
+                # Hand sign classification
+                hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
+                if hand_sign_id == "Not applicable":  # Point gesture
+                    point_history.append(landmark_list[8])
+                else:
+                    point_history.append([0, 0])
+
+                # Finger gesture classification
+                finger_gesture_id = 0
+                point_history_len = len(pre_processed_point_history_list)
+                if point_history_len == (history_length * 2):
+                    finger_gesture_id = point_history_classifier(
+                        pre_processed_point_history_list)
+
+                # Calculates the gesture IDs in the latest detection
+                finger_gesture_history.append(finger_gesture_id)
+                most_common_fg_id = Counter(
+                    finger_gesture_history).most_common()
+
+                # Logic for Determining Checkpoints
+                if keypoint_classifier_labels[hand_sign_id] == "Peace":
+                    print("Peace")
+
+                # Drawing part
+                debug_image = draw_bounding_rect(use_brect, debug_image, brect)
+                debug_image = draw_landmarks(debug_image, landmark_list)
+                debug_image = draw_info_text(
+                    debug_image,
+                    brect,
+                    handedness,
+                    keypoint_classifier_labels[hand_sign_id],
+                    point_history_classifier_labels[most_common_fg_id[0][0]],
+                )
+        else:
+            point_history.append([0, 0])
+
+        debug_image = draw_point_history(debug_image, point_history)
+        debug_image = draw_info(debug_image, fps, mode, number)
+
+        # Screen reflection #############################################################
+        cv.imshow('Hand Gesture Recognition', debug_image)
+
+    cap.release()
+    cv.destroyAllWindows()
+    ############### Gud Code ################
 
 
 if __name__ == '__main__':
