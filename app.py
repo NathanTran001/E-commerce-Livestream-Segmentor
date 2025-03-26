@@ -21,6 +21,8 @@ from hand_gesture_recognizer.utils.cvfpscalc import CvFpsCalc
 from hand_gesture_recognizer.model.keypoint_classifier.keypoint_classifier import KeyPointClassifier
 from hand_gesture_recognizer.model.point_history_classifier.point_history_classifier import PointHistoryClassifier
 
+pose_duration = 0.2
+time_between_batches = 2
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -52,7 +54,7 @@ def main():
     if camera_mode:
         run_with_camera()
     else:
-        video_path = 'Threshold.mp4'
+        video_path = 'Live.mp4'
         process_video(video_path)
     # APP ENDS #################################################
 
@@ -110,10 +112,12 @@ def process_video(video_path):
 
                     hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
 
+                    # Start points
                     if keypoint_classifier_labels[hand_sign_id] == "Peace":
                         timestamp = frame_count / frame_rate
                         timestamps_start.append(timestamp)
-                    if keypoint_classifier_labels[hand_sign_id] == "Open" and len(timestamps_start) != 0:
+                    # End points
+                    if keypoint_classifier_labels[hand_sign_id] == "OOO" and len(timestamps_start) != 0:
                         timestamp = frame_count / frame_rate
                         if len(timestamps_end) == 0:  # If list is empty
                             timestamps_end.append(timestamp)
@@ -142,7 +146,7 @@ def process_video(video_path):
     print(timestamps_start)
 
     timestamps_start = normalize_timestamps(timestamps_start)
-    timestamps_end = normalize_timestamps(timestamps_end)
+    # timestamps_end = normalize_timestamps(timestamps_end)
     print("starts: ")
     print(timestamps_start)
     print("end: ")
@@ -156,7 +160,7 @@ def process_video(video_path):
             subclip(video_path, point_to_start, timestamps_start[idx + 1], f"{segment_name}.mp4")
             # ffmpeg_extract_subclip(video_path, point_to_start, timestamps_start[idx + 1],f"{segment_name}.mp4")
             segment_name = segment_name + 1
-    print(f"start point of last clip: {len(timestamps_start) - 1}")
+    print(f"start point of last clip: {timestamps_start[len(timestamps_start) - 1]}")
     start_time = timestamps_start[len(timestamps_start) - 1]
     if len(timestamps_end) > 0:
         print(f"end point of last clip: {timestamps_end[0]}")
@@ -169,25 +173,58 @@ def process_video(video_path):
 
 
 def subclip(video_path, start_time, end_time, output_file):
+    # subprocess.run([
+    #     "ffmpeg", "-y",
+    #     "-i", video_path,
+    #     "-ss", str(start_time),
+    #     "-to", str(end_time),
+    #     "-c:v", "libx264", "-preset", "fast", "-crf", "23",  # Re-encode to avoid frozen frames
+    #     "-c:a", "aac", "-b:a", "128k",  # Copy audio or re-encode if needed
+    #     f"{output_file}"
+    # ])
     subprocess.run([
         "ffmpeg", "-y",
+        "-ss", str(start_time),  # Move before input
         "-i", video_path,
-        "-ss", str(start_time),
         "-to", str(end_time),
-        "-c", "copy",
+        "-c", "copy",  # No re-encoding
+        "-map", "0",  # Avoid duplicate streams
         f"{output_file}"
     ])
 
-
 def normalize_timestamps(timestamps):
-    indices_for_removal = []
-    for idx, timestamp in enumerate(timestamps):
+    # indices_for_removal = []
+    temp_timestamps = []
+    normalized_timestamps = []
+    for idx, timestamp in enumerate(timestamps):    # 2.1 2.2 2.3   5.6 5.7   8.1 8.2 8.3 8.4 8.5
+        print(timestamps)
+        print(temp_timestamps)
+        print(normalized_timestamps)
+        # When haven't reached the end
         if len(timestamps) > idx + 1 and len(timestamps) >= 2:
-            if abs(timestamp - timestamps[idx + 1]) < 10:
-                indices_for_removal.append(idx)
-
-    timestamps = [timestamp for i, timestamp in enumerate(timestamps) if i not in indices_for_removal]
-    return timestamps
+            # Keep flushing to temp
+            temp_timestamps.append(timestamp)
+            # When reach a different batch
+            if abs(timestamp - timestamps[idx + 1]) > time_between_batches:
+                # Validate current temp batch and clean temp
+                if (len(temp_timestamps) > 0 and
+                        temp_timestamps[len(temp_timestamps) - 1] - temp_timestamps[0] >= pose_duration):
+                    normalized_timestamps.append(temp_timestamps[len(temp_timestamps) - 1])
+                temp_timestamps.clear()
+        # When reach the end
+        elif idx + 1 == len(timestamps) >= 2:
+            # Only process if it is a same-batch stamp since a different-batch stamp being the final stamp is discarded
+            # If same batch -> Still add that final stamp to temp
+            if abs(timestamp - temp_timestamps[len(temp_timestamps) - 1]) <= time_between_batches:
+                temp_timestamps.append(timestamp)
+            # Validate current batch and clean temp
+            if (len(temp_timestamps) > 0 and
+                    temp_timestamps[len(temp_timestamps) - 1] - temp_timestamps[0] >= pose_duration):
+                normalized_timestamps.append(temp_timestamps[len(temp_timestamps) - 1])
+            temp_timestamps.clear()
+    # def validate_current_batch_and_clean_temp
+    # timestamps = [timestamp for i, timestamp in enumerate(timestamps) if i not in indices_for_removal]
+    return normalized_timestamps
 
 
 def run_with_camera():
