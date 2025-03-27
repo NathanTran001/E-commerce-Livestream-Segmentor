@@ -16,6 +16,7 @@ import cv2 as cv
 import numpy as np
 import mediapipe as mp
 import time
+import multiprocessing as mtp
 
 from hand_gesture_recognizer.utils.cvfpscalc import CvFpsCalc
 from hand_gesture_recognizer.model.keypoint_classifier.keypoint_classifier import KeyPointClassifier
@@ -64,93 +65,202 @@ def main():
     print(f"Execution time: {execution_time:.2f} seconds")
 
 
-def process_video(video_path):
-    cap = cv.VideoCapture(video_path)
+# def process_video(video_path):
+#     cap = cv.VideoCapture(video_path)
+#
+#     if not cap.isOpened():
+#         print("Error: Could not open video.")
+#         return
+#
+#     mp_hands = mp.solutions.hands
+#     hands = mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5,
+#                            min_tracking_confidence=0.5)
+#
+#     keypoint_classifier = KeyPointClassifier()
+#
+#     with open('hand_gesture_recognizer/model/keypoint_classifier/keypoint_classifier_label.csv',
+#               encoding='utf-8-sig') as f:
+#         keypoint_classifier_labels = [row[0] for row in csv.reader(f)]
+#
+#     timestamps_start = []
+#     timestamps_end = []
+#     timestamps_start_raw = []
+#     timestamps_end_raw = []
+#     frame_rate = cap.get(cv.CAP_PROP_FPS)
+#
+#     frame_skip = 5
+#     frame_count = 0
+#     end_detected = False
+#     timestamp = 0
+#     timestamp_previous = 0
+#
+#     # monitor(cap, hands)
+#
+#     while True and not end_detected:
+#         ret, image = cap.read()
+#         if not ret:
+#             break
+#
+#         # Skip frames for speed
+#         if frame_count % frame_skip == 0:
+#             image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
+#             results = hands.process(image)
+#
+#             if results.multi_hand_landmarks:
+#                 for hand_landmarks in results.multi_hand_landmarks:
+#                     landmark_list = calc_landmark_list(image, hand_landmarks)
+#                     pre_processed_landmark_list = pre_process_landmark(landmark_list)
+#
+#                     hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
+#
+#                     # Start points
+#                     if keypoint_classifier_labels[hand_sign_id] == "Peace":
+#                         timestamp = frame_count / frame_rate
+#                         timestamps_start.append(timestamp)
+#                     # End points
+#                     if keypoint_classifier_labels[hand_sign_id] == "OOO" and len(timestamps_start) != 0:
+#                         timestamp = frame_count / frame_rate
+#                         if len(timestamps_end) == 0:  # If list is empty
+#                             timestamps_end.append(timestamp)
+#                         else:
+#                             if abs(timestamps_end[0] - timestamp) < 3:  # If still the same batch
+#                                 timestamps_end.append(timestamp)
+#                                 if len(timestamps_end) == 3:
+#                                     end_detected = True
+#                             else:   # If a different batch
+#                                 timestamps_end.clear()
+#                                 timestamps_end.append(timestamp)
+#
+#         # print(f"Starts after loop: {timestamps_start}")
+#         # if len(timestamps_start) <= 3:
+#         #     print("Start deleted")
+#         #     timestamps_start.clear()
+#         # if len(timestamps_end) <= 3:
+#         #     timestamps_end.clear()
+#         # else:
+#         #     end_detected = True
+#         frame_count += 1
+#
+#     cap.release()
+#
+#     print("starts: ")
+#     print(timestamps_start)
+#
+#     timestamps_start = normalize_timestamps(timestamps_start)
+#     # timestamps_end = normalize_timestamps(timestamps_end)
+#     print("starts: ")
+#     print(timestamps_start)
+#     print("end: ")
+#     print(timestamps_end)
+#     if not timestamps_start:
+#         print("No start points found")
+#         return
+#     segment_name = 1
+#     for idx, point_to_start in enumerate(timestamps_start):
+#         if len(timestamps_start) >= 2 and len(timestamps_start) > idx + 1:
+#             subclip(video_path, point_to_start, timestamps_start[idx + 1], f"{segment_name}.mp4")
+#             segment_name = segment_name + 1
+#     print(f"start point of last clip: {timestamps_start[len(timestamps_start) - 1]}")
+#     start_time = timestamps_start[len(timestamps_start) - 1]
+#     if len(timestamps_end) > 0:
+#         print(f"end point of last clip: {timestamps_end[0]}")
+#         end_time = timestamps_end[0]
+#         subclip(video_path, start_time, end_time, f"{segment_name}.mp4")
+#     else:
+#         subclip(video_path, start_time, VideoFileClip(video_path).duration, f"{segment_name}.mp4")
 
-    if not cap.isOpened():
-        print("Error: Could not open video.")
-        return
-
-    mp_hands = mp.solutions.hands
-    hands = mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5,
-                           min_tracking_confidence=0.5)
-
+######### HERE ###########
+def worker_init():
+    """ Each process initializes its own MediaPipe and classifier. """
+    global hands, keypoint_classifier, keypoint_classifier_labels
+    hands = mp.solutions.hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5,
+                                     min_tracking_confidence=0.5)
     keypoint_classifier = KeyPointClassifier()
 
     with open('hand_gesture_recognizer/model/keypoint_classifier/keypoint_classifier_label.csv',
               encoding='utf-8-sig') as f:
         keypoint_classifier_labels = [row[0] for row in csv.reader(f)]
 
-    timestamps_start = []
-    timestamps_end = []
-    timestamps_start_raw = []
-    timestamps_end_raw = []
-    frame_rate = cap.get(cv.CAP_PROP_FPS)
 
+def process_frame_worker(args):
+    """ Process a single frame and detect hand gestures. """
+    frame_count, frame, frame_rate = args
+    image = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
+    results = hands.process(image)
+
+    detected_timestamps = []
+    if results.multi_hand_landmarks:
+        for hand_landmarks in results.multi_hand_landmarks:
+            landmark_list = calc_landmark_list(image, hand_landmarks)
+            pre_processed_landmark_list = pre_process_landmark(landmark_list)
+            hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
+
+            timestamp = frame_count / frame_rate
+            if keypoint_classifier_labels[hand_sign_id] == "Peace":
+                print(f"Found one at {timestamp}")
+                detected_timestamps.append(("start", timestamp))
+            if keypoint_classifier_labels[hand_sign_id] == "":
+                detected_timestamps.append(("end", timestamp))
+
+    return detected_timestamps  # Return detected timestamps for merging
+
+
+def process_video(video_path):
+    cap = cv.VideoCapture(video_path)
+    if not cap.isOpened():
+        print("Error: Could not open video.")
+        return
+
+    frame_rate = cap.get(cv.CAP_PROP_FPS)
     frame_skip = 5
     frame_count = 0
     end_detected = False
-    timestamp = 0
-    timestamp_previous = 0
+    timestamps_start = []
+    timestamps_end = []
 
-    # monitor(cap, hands)
+    pool = mtp.Pool(mtp.cpu_count(), initializer=worker_init)  # Limit workers to save RAM
+
+    batch_size = 50
+    tasks = []
+    results = []  # ✅ Store all results
 
     while True and not end_detected:
-        ret, image = cap.read()
+        ret, frame = cap.read()
         if not ret:
             break
-
-        # Skip frames for speed
         if frame_count % frame_skip == 0:
-            image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
-            results = hands.process(image)
+            tasks.append((frame_count, frame, frame_rate))
 
-            if results.multi_hand_landmarks:
-                for hand_landmarks in results.multi_hand_landmarks:
-                    landmark_list = calc_landmark_list(image, hand_landmarks)
-                    pre_processed_landmark_list = pre_process_landmark(landmark_list)
+        if len(tasks) >= batch_size:  # Process in batches
+            batch_results = pool.map(process_frame_worker, tasks)
+            results += batch_results  # ✅ Append batch results instead of overwriting
+            tasks.clear()  # Free memory
 
-                    hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
-
-                    # Start points
-                    if keypoint_classifier_labels[hand_sign_id] == "Peace":
-                        timestamp = frame_count / frame_rate
-                        timestamps_start.append(timestamp)
-                    # End points
-                    if keypoint_classifier_labels[hand_sign_id] == "OOO" and len(timestamps_start) != 0:
-                        timestamp = frame_count / frame_rate
-                        if len(timestamps_end) == 0:  # If list is empty
-                            timestamps_end.append(timestamp)
-                        else:
-                            if abs(timestamps_end[0] - timestamp) < 3:  # If still the same batch
-                                timestamps_end.append(timestamp)
-                                if len(timestamps_end) == 3:
-                                    end_detected = True
-                            else:   # If a different batch
-                                timestamps_end.clear()
-                                timestamps_end.append(timestamp)
-
-        # print(f"Starts after loop: {timestamps_start}")
-        # if len(timestamps_start) <= 3:
-        #     print("Start deleted")
-        #     timestamps_start.clear()
-        # if len(timestamps_end) <= 3:
-        #     timestamps_end.clear()
-        # else:
-        #     end_detected = True
         frame_count += 1
 
     cap.release()
 
-    print("starts: ")
-    print(timestamps_start)
+    # ✅ Process any remaining frames
+    if tasks:
+        results += pool.map(process_frame_worker, tasks)
+
+    pool.close()
+    pool.join()
+
+    # ✅ Merge results
+    for detected_timestamps in results:
+        for event, timestamp in detected_timestamps:
+            if event == "start":
+                timestamps_start.append(timestamp)
+            elif event == "end":
+                timestamps_end.append(timestamp)
 
     timestamps_start = normalize_timestamps(timestamps_start)
-    # timestamps_end = normalize_timestamps(timestamps_end)
-    print("starts: ")
-    print(timestamps_start)
-    print("end: ")
-    print(timestamps_end)
+    timestamps_end = normalize_timestamps(timestamps_end)
+
+    print("Starts:", timestamps_start)
+    print("Ends:", timestamps_end)
+
     if not timestamps_start:
         print("No start points found")
         return
@@ -158,7 +268,6 @@ def process_video(video_path):
     for idx, point_to_start in enumerate(timestamps_start):
         if len(timestamps_start) >= 2 and len(timestamps_start) > idx + 1:
             subclip(video_path, point_to_start, timestamps_start[idx + 1], f"{segment_name}.mp4")
-            # ffmpeg_extract_subclip(video_path, point_to_start, timestamps_start[idx + 1],f"{segment_name}.mp4")
             segment_name = segment_name + 1
     print(f"start point of last clip: {timestamps_start[len(timestamps_start) - 1]}")
     start_time = timestamps_start[len(timestamps_start) - 1]
@@ -166,11 +275,9 @@ def process_video(video_path):
         print(f"end point of last clip: {timestamps_end[0]}")
         end_time = timestamps_end[0]
         subclip(video_path, start_time, end_time, f"{segment_name}.mp4")
-        # ffmpeg_extract_subclip(video_path, start_time, end_time, f"{segment_name}.mp4")
     else:
         subclip(video_path, start_time, VideoFileClip(video_path).duration, f"{segment_name}.mp4")
-        # ffmpeg_extract_subclip(video_path, start_time, VideoFileClip(video_path).duration, f"{segment_name}.mp4")
-
+######### HERE ###########
 
 def subclip(video_path, start_time, end_time, output_file):
     # subprocess.run([
@@ -184,24 +291,26 @@ def subclip(video_path, start_time, end_time, output_file):
     # ])
     subprocess.run([
         "ffmpeg", "-y",
-        "-ss", str(start_time),  # Move before input
         "-i", video_path,
+        "-ss", str(start_time),
         "-to", str(end_time),
         "-c", "copy",  # No re-encoding
         "-map", "0",  # Avoid duplicate streams
         f"{output_file}"
     ])
 
+
 def normalize_timestamps(timestamps):
-    # indices_for_removal = []
     temp_timestamps = []
     normalized_timestamps = []
     for idx, timestamp in enumerate(timestamps):    # 2.1 2.2 2.3   5.6 5.7   8.1 8.2 8.3 8.4 8.5
-        print(timestamps)
-        print(temp_timestamps)
-        print(normalized_timestamps)
+        # print(timestamps)
+        # print(temp_timestamps)
+        # print(normalized_timestamps)
         # When haven't reached the end
         if len(timestamps) > idx + 1 and len(timestamps) >= 2:
+            timestamps.sort()
+            print("After sort: ", timestamps)
             # Keep flushing to temp
             temp_timestamps.append(timestamp)
             # When reach a different batch
@@ -215,15 +324,14 @@ def normalize_timestamps(timestamps):
         elif idx + 1 == len(timestamps) >= 2:
             # Only process if it is a same-batch stamp since a different-batch stamp being the final stamp is discarded
             # If same batch -> Still add that final stamp to temp
-            if abs(timestamp - temp_timestamps[len(temp_timestamps) - 1]) <= time_between_batches:
+            if (len(temp_timestamps) > 0 and
+                    abs(timestamp - temp_timestamps[len(temp_timestamps) - 1]) <= time_between_batches):
                 temp_timestamps.append(timestamp)
             # Validate current batch and clean temp
             if (len(temp_timestamps) > 0 and
                     temp_timestamps[len(temp_timestamps) - 1] - temp_timestamps[0] >= pose_duration):
                 normalized_timestamps.append(temp_timestamps[len(temp_timestamps) - 1])
             temp_timestamps.clear()
-    # def validate_current_batch_and_clean_temp
-    # timestamps = [timestamp for i, timestamp in enumerate(timestamps) if i not in indices_for_removal]
     return normalized_timestamps
 
 
