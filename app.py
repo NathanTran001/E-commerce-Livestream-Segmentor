@@ -4,7 +4,9 @@ import csv
 import copy
 import argparse
 import itertools
+import multiprocessing
 import subprocess
+import sys
 from collections import Counter
 from collections import deque
 
@@ -22,8 +24,95 @@ from hand_gesture_recognizer.utils.cvfpscalc import CvFpsCalc
 from hand_gesture_recognizer.model.keypoint_classifier.keypoint_classifier import KeyPointClassifier
 from hand_gesture_recognizer.model.point_history_classifier.point_history_classifier import PointHistoryClassifier
 
+import threading
+import tkinter as tk
+from tkinter import filedialog, messagebox
+
 pose_duration = 0.2
 time_between_batches = 2
+
+################################# GUI #################################
+# Function to switch between frames (screens)
+def show_frame(frame):
+    frame.tkraise()
+
+
+def select_video():
+    file_path = filedialog.askopenfilename(filetypes=[("Video files", "*.mp4 *.avi *.mkv")])
+    if file_path:
+        # selected_file.set(f"Selected: {file_path.split('/')[-1]}")
+        selected_file.set(file_path)
+    print(selected_file.get())
+
+
+def execute_split():
+    if not selected_file.get():
+        messagebox.showwarning("No File", "Please select a video first!")
+        return
+    show_frame(loading_frame)
+    # this freezes the frame
+    run_main_in_thread()
+
+
+def run_main_in_thread():
+    thread = threading.Thread(target=main)
+    thread.daemon = True  # Ensures thread exits when main program ends
+    thread.start()
+
+
+def show_results():
+    # Mockup: Populate with example video names (replace with real output)
+    video_list.delete(0, tk.END)
+    for i in range(1, 6):
+        video_list.insert(tk.END, f"short_video_{i}.mp4")
+    show_frame(results_frame)
+
+# Main application window
+root = tk.Tk()
+root.title("Video to Multiple Short Videos")
+root.geometry("400x300")
+root.resizable(False, False)
+
+# Create three frames for different states
+input_frame = tk.Frame(root)
+loading_frame = tk.Frame(root)
+results_frame = tk.Frame(root)
+selected_file = tk.StringVar()
+
+# Scrollable listbox to display cut video names (mockup)
+scrollbar = tk.Scrollbar(results_frame)
+video_list = tk.Listbox(results_frame, height=10, width=50, yscrollcommand=scrollbar.set)
+scrollbar.config(command=video_list.yview)
+scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+video_list.pack(pady=10)
+
+# Stack frames on top of each other
+for frame in (input_frame, loading_frame, results_frame):
+    frame.grid(row=0, column=0, sticky="nsew")
+
+# --- Input Frame (Initial Screen) ---
+input_label = tk.Label(input_frame, text="Select a video to split", font=("Arial", 14))
+input_label.pack(pady=20)
+
+file_label = tk.Label(input_frame, textvariable=selected_file, wraplength=350)
+file_label.pack(pady=10)
+select_button = tk.Button(input_frame, text="Select Video", command=select_video, width=15)
+select_button.pack(pady=10)
+
+execute_button = tk.Button(input_frame, text="Execute", command=execute_split, width=15)
+execute_button.pack(pady=20)
+
+# --- Loading Frame ---
+loading_label = tk.Label(loading_frame, text="Processing your video...", font=("Arial", 16))
+loading_label.pack(expand=True)
+
+# --- Results Frame ---
+results_label = tk.Label(results_frame, text="Your Short Videos", font=("Arial", 14))
+results_label.pack(pady=10)
+
+back_button = tk.Button(results_frame, text="Back", command=lambda: show_frame(input_frame), width=15)
+back_button.pack(pady=10)
+################################# GUI #################################
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -51,18 +140,16 @@ def main():
     start_time = time.perf_counter()
 
     # APP STARTS #################################################
-    camera_mode = False
-    if camera_mode:
-        run_with_camera()
-    else:
-        video_path = 'Live.mp4'
-        process_video(video_path)
+    video_path = selected_file.get()
+    print(f"Processing video: {video_path}")
+    process_video(video_path)
+    show_results()
     # APP ENDS #################################################
-
     end_time = time.perf_counter()
     execution_time = end_time - start_time
 
     print(f"Execution time: {execution_time:.2f} seconds")
+
 
 
 # def process_video(video_path):
@@ -220,7 +307,7 @@ def process_video(video_path):
 
     pool = mtp.Pool(mtp.cpu_count(), initializer=worker_init)  # Limit workers to save RAM
 
-    batch_size = 50
+    batch_size = 100
     tasks = []
     results = []  # ✅ Store all results
 
@@ -961,5 +1048,9 @@ def monitor(cap, hands):
     ############### Gud Code ################
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    # Start with the input frame visible
+    show_frame(input_frame)
+
+    # Run the application
+    root.mainloop()
