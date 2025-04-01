@@ -142,7 +142,7 @@ def main():
     # APP STARTS #################################################
     video_path = selected_file.get()
     print(f"Processing video: {video_path}")
-    process_video(video_path)
+    process_video_single_thread(video_path)
     show_results()
     # APP ENDS #################################################
     end_time = time.perf_counter()
@@ -151,110 +151,109 @@ def main():
     print(f"Execution time: {execution_time:.2f} seconds")
 
 
+def process_video_single_thread(video_path):
+    cap = cv.VideoCapture(video_path)
 
-# def process_video(video_path):
-#     cap = cv.VideoCapture(video_path)
-#
-#     if not cap.isOpened():
-#         print("Error: Could not open video.")
-#         return
-#
-#     mp_hands = mp.solutions.hands
-#     hands = mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5,
-#                            min_tracking_confidence=0.5)
-#
-#     keypoint_classifier = KeyPointClassifier()
-#
-#     with open('hand_gesture_recognizer/model/keypoint_classifier/keypoint_classifier_label.csv',
-#               encoding='utf-8-sig') as f:
-#         keypoint_classifier_labels = [row[0] for row in csv.reader(f)]
-#
-#     timestamps_start = []
-#     timestamps_end = []
-#     timestamps_start_raw = []
-#     timestamps_end_raw = []
-#     frame_rate = cap.get(cv.CAP_PROP_FPS)
-#
-#     frame_skip = 5
-#     frame_count = 0
-#     end_detected = False
-#     timestamp = 0
-#     timestamp_previous = 0
-#
-#     # monitor(cap, hands)
-#
-#     while True and not end_detected:
-#         ret, image = cap.read()
-#         if not ret:
-#             break
-#
-#         # Skip frames for speed
-#         if frame_count % frame_skip == 0:
-#             image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
-#             results = hands.process(image)
-#
-#             if results.multi_hand_landmarks:
-#                 for hand_landmarks in results.multi_hand_landmarks:
-#                     landmark_list = calc_landmark_list(image, hand_landmarks)
-#                     pre_processed_landmark_list = pre_process_landmark(landmark_list)
-#
-#                     hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
-#
-#                     # Start points
-#                     if keypoint_classifier_labels[hand_sign_id] == "Peace":
-#                         timestamp = frame_count / frame_rate
-#                         timestamps_start.append(timestamp)
-#                     # End points
-#                     if keypoint_classifier_labels[hand_sign_id] == "OOO" and len(timestamps_start) != 0:
-#                         timestamp = frame_count / frame_rate
-#                         if len(timestamps_end) == 0:  # If list is empty
-#                             timestamps_end.append(timestamp)
-#                         else:
-#                             if abs(timestamps_end[0] - timestamp) < 3:  # If still the same batch
-#                                 timestamps_end.append(timestamp)
-#                                 if len(timestamps_end) == 3:
-#                                     end_detected = True
-#                             else:   # If a different batch
-#                                 timestamps_end.clear()
-#                                 timestamps_end.append(timestamp)
-#
-#         # print(f"Starts after loop: {timestamps_start}")
-#         # if len(timestamps_start) <= 3:
-#         #     print("Start deleted")
-#         #     timestamps_start.clear()
-#         # if len(timestamps_end) <= 3:
-#         #     timestamps_end.clear()
-#         # else:
-#         #     end_detected = True
-#         frame_count += 1
-#
-#     cap.release()
-#
-#     print("starts: ")
-#     print(timestamps_start)
-#
-#     timestamps_start = normalize_timestamps(timestamps_start)
-#     # timestamps_end = normalize_timestamps(timestamps_end)
-#     print("starts: ")
-#     print(timestamps_start)
-#     print("end: ")
-#     print(timestamps_end)
-#     if not timestamps_start:
-#         print("No start points found")
-#         return
-#     segment_name = 1
-#     for idx, point_to_start in enumerate(timestamps_start):
-#         if len(timestamps_start) >= 2 and len(timestamps_start) > idx + 1:
-#             subclip(video_path, point_to_start, timestamps_start[idx + 1], f"{segment_name}.mp4")
-#             segment_name = segment_name + 1
-#     print(f"start point of last clip: {timestamps_start[len(timestamps_start) - 1]}")
-#     start_time = timestamps_start[len(timestamps_start) - 1]
-#     if len(timestamps_end) > 0:
-#         print(f"end point of last clip: {timestamps_end[0]}")
-#         end_time = timestamps_end[0]
-#         subclip(video_path, start_time, end_time, f"{segment_name}.mp4")
-#     else:
-#         subclip(video_path, start_time, VideoFileClip(video_path).duration, f"{segment_name}.mp4")
+    if not cap.isOpened():
+        print("Error: Could not open video.")
+        return
+
+    mp_hands = mp.solutions.hands
+    hands = mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5,
+                           min_tracking_confidence=0.5)
+
+    keypoint_classifier = KeyPointClassifier()
+
+    with open('hand_gesture_recognizer/model/keypoint_classifier/keypoint_classifier_label.csv',
+              encoding='utf-8-sig') as f:
+        keypoint_classifier_labels = [row[0] for row in csv.reader(f)]
+
+    timestamps_start = []
+    timestamps_end = []
+    timestamps_start_raw = []
+    timestamps_end_raw = []
+    frame_rate = cap.get(cv.CAP_PROP_FPS)
+
+    frame_skip = 5
+    frame_count = 0
+    end_detected = False
+    timestamp = 0
+    timestamp_previous = 0
+
+    # monitor(cap, hands)
+
+    while True and not end_detected:
+        ret, image = cap.read()
+        if not ret:
+            break
+
+        # Skip frames for speed
+        if frame_count % frame_skip == 0:
+            image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
+            results = hands.process(image)
+
+            if results.multi_hand_landmarks:
+                for hand_landmarks in results.multi_hand_landmarks:
+                    landmark_list = calc_landmark_list(image, hand_landmarks)
+                    pre_processed_landmark_list = pre_process_landmark(landmark_list)
+
+                    hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
+
+                    # Start points
+                    if keypoint_classifier_labels[hand_sign_id] == "Peace":
+                        timestamp = frame_count / frame_rate
+                        timestamps_start.append(timestamp)
+                    # End points
+                    if keypoint_classifier_labels[hand_sign_id] == "OOO" and len(timestamps_start) != 0:
+                        timestamp = frame_count / frame_rate
+                        if len(timestamps_end) == 0:  # If list is empty
+                            timestamps_end.append(timestamp)
+                        else:
+                            if abs(timestamps_end[0] - timestamp) < 3:  # If still the same batch
+                                timestamps_end.append(timestamp)
+                                if len(timestamps_end) == 3:
+                                    end_detected = True
+                            else:   # If a different batch
+                                timestamps_end.clear()
+                                timestamps_end.append(timestamp)
+
+        # print(f"Starts after loop: {timestamps_start}")
+        # if len(timestamps_start) <= 3:
+        #     print("Start deleted")
+        #     timestamps_start.clear()
+        # if len(timestamps_end) <= 3:
+        #     timestamps_end.clear()
+        # else:
+        #     end_detected = True
+        frame_count += 1
+
+    cap.release()
+
+    print("starts: ")
+    print(timestamps_start)
+
+    timestamps_start = normalize_timestamps(timestamps_start)
+    # timestamps_end = normalize_timestamps(timestamps_end)
+    print("starts: ")
+    print(timestamps_start)
+    print("end: ")
+    print(timestamps_end)
+    if not timestamps_start:
+        print("No start points found")
+        return
+    segment_name = 1
+    for idx, point_to_start in enumerate(timestamps_start):
+        if len(timestamps_start) >= 2 and len(timestamps_start) > idx + 1:
+            subclip(video_path, point_to_start, timestamps_start[idx + 1], f"{segment_name}.mp4")
+            segment_name = segment_name + 1
+    print(f"start point of last clip: {timestamps_start[len(timestamps_start) - 1]}")
+    start_time = timestamps_start[len(timestamps_start) - 1]
+    if len(timestamps_end) > 0:
+        print(f"end point of last clip: {timestamps_end[0]}")
+        end_time = timestamps_end[0]
+        subclip(video_path, start_time, end_time, f"{segment_name}.mp4")
+    else:
+        subclip(video_path, start_time, VideoFileClip(video_path).duration, f"{segment_name}.mp4")
 
 ######### HERE ###########
 def worker_init():
