@@ -20,7 +20,7 @@ import mediapipe as mp
 import time
 import multiprocessing as mtp
 
-from hand_gesture_recognizer.utils.cvfpscalc import CvFpsCalc
+from hand_gesture_recognizer2.utils.cvfpscalc import CvFpsCalc
 from hand_gesture_recognizer.model.keypoint_classifier.keypoint_classifier import KeyPointClassifier
 from hand_gesture_recognizer.model.point_history_classifier.point_history_classifier import PointHistoryClassifier
 
@@ -164,7 +164,7 @@ def process_video_single_thread(video_path):
 
     keypoint_classifier = KeyPointClassifier()
 
-    with open('hand_gesture_recognizer/model/keypoint_classifier/keypoint_classifier_label.csv',
+    with open('hand_gesture_recognizer2/model/keypoint_classifier/keypoint_classifier_label.csv',
               encoding='utf-8-sig') as f:
         keypoint_classifier_labels = [row[0] for row in csv.reader(f)]
 
@@ -263,7 +263,7 @@ def worker_init():
                                      min_tracking_confidence=0.5)
     keypoint_classifier = KeyPointClassifier()
 
-    with open('hand_gesture_recognizer/model/keypoint_classifier/keypoint_classifier_label.csv',
+    with open('hand_gesture_recognizer2/model/keypoint_classifier/keypoint_classifier_label.csv',
               encoding='utf-8-sig') as f:
         keypoint_classifier_labels = [row[0] for row in csv.reader(f)]
 
@@ -454,14 +454,14 @@ def run_with_camera():
     point_history_classifier = PointHistoryClassifier()
 
     # Read labels ###########################################################
-    with open('hand_gesture_recognizer/model/keypoint_classifier/keypoint_classifier_label.csv',
+    with open('hand_gesture_recognizer2/model/keypoint_classifier/keypoint_classifier_label.csv',
               encoding='utf-8-sig') as f:
         keypoint_classifier_labels = csv.reader(f)
         keypoint_classifier_labels = [
             row[0] for row in keypoint_classifier_labels
         ]
     with open(
-            'hand_gesture_recognizer/model/point_history_classifier/point_history_classifier_label.csv',
+            'hand_gesture_recognizer2/model/point_history_classifier/point_history_classifier_label.csv',
             encoding='utf-8-sig') as f:
         point_history_classifier_labels = csv.reader(f)
         point_history_classifier_labels = [
@@ -669,12 +669,12 @@ def logging_csv(number, mode, landmark_list, point_history_list):
     if mode == 0:
         pass
     if mode == 1 and (0 <= number <= 9):
-        csv_path = 'hand_gesture_recognizer/model/keypoint_classifier/keypoint.csv'
+        csv_path = 'hand_gesture_recognizer2/model/keypoint_classifier/keypoint.csv'
         with open(csv_path, 'a', newline="") as f:
             writer = csv.writer(f)
             writer.writerow([number, *landmark_list])
     if mode == 2 and (0 <= number <= 9):
-        csv_path = 'hand_gesture_recognizer/model/point_history_classifier/point_history.csv'
+        csv_path = 'hand_gesture_recognizer2/model/point_history_classifier/point_history.csv'
         with open(csv_path, 'a', newline="") as f:
             writer = csv.writer(f)
             writer.writerow([number, *point_history_list])
@@ -932,14 +932,14 @@ def monitor(cap, hands):
     point_history_classifier = PointHistoryClassifier()
     keypoint_classifier = KeyPointClassifier()
     # Read labels ###########################################################
-    with open('hand_gesture_recognizer/model/keypoint_classifier/keypoint_classifier_label.csv',
+    with open('hand_gesture_recognizer2/model/keypoint_classifier/keypoint_classifier_label.csv',
               encoding='utf-8-sig') as f:
         keypoint_classifier_labels = csv.reader(f)
         keypoint_classifier_labels = [
             row[0] for row in keypoint_classifier_labels
         ]
     with open(
-            'hand_gesture_recognizer/model/point_history_classifier/point_history_classifier_label.csv',
+            'hand_gesture_recognizer2/model/point_history_classifier/point_history_classifier_label.csv',
             encoding='utf-8-sig') as f:
         point_history_classifier_labels = csv.reader(f)
         point_history_classifier_labels = [
