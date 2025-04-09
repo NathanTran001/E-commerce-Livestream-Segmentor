@@ -1,20 +1,23 @@
+import copy
+import itertools
 import subprocess
+import sys
 
 import cv2
 import threading
-import time
-import numpy as np
 import pyaudio
 import wave
 import queue
 import csv
 from datetime import datetime
+
 from moviepy.video.io.VideoFileClip import VideoFileClip
 import mediapipe as mp
 import tkinter as tk
 from tkinter import ttk
-from app import calc_landmark_list, pre_process_landmark, normalize_timestamps
 from hand_gesture_recognizer.model.keypoint_classifier.keypoint_classifier import KeyPointClassifier
+from PyQt5.QtMultimedia import QCameraInfo
+from PyQt5.QtCore import QCoreApplication
 
 # === CONFIGURABLE ===
 TARGET_HAND_SIGN = "Peace"
@@ -25,7 +28,7 @@ AUDIO_RATE = 44100
 CHANNELS = 1
 FORMAT = pyaudio.paInt16
 CHUNK = 1024
-pose_duration = 1.5  # in seconds
+pose_duration = 0.9  # seconds
 frame_skip = 5
 
 # === GLOBALS ===
@@ -33,6 +36,8 @@ audio_queue = queue.Queue()
 recording = False
 camera_index = 0
 microphone_index = 0
+time_between_batches = 1  # seconds
+
 
 # === Audio Recording Thread ===
 def audio_recorder(filename, device_index):
@@ -110,7 +115,6 @@ def process_video_single_thread():
         timestamps_start = []
         timestamps_end = []
         frame_count = 0
-        time_between_batches = 3  # seconds
 
         while recording:
             ret, image = cap.read()
@@ -135,17 +139,20 @@ def process_video_single_thread():
                         timestamp = frame_count / frame_rate
 
                         if label == "Peace":
+                            print("START")
                             timestamps_start.append(timestamp)
-                        elif label == "Open" and timestamps_start:
-                            if not timestamps_end:
+                        elif label == "Open" and len(timestamps_start) != 0:
+                            print("END")
+                            if not timestamps_end:  # If list is empty
                                 timestamps_end.append(timestamp)
                             else:
-                                if abs(timestamps_end[0] - timestamp) < time_between_batches:
+                                if abs(timestamps_end[0] - timestamp) < time_between_batches:  # If still the same batch
                                     timestamps_end.append(timestamp)
-                                    if len(timestamps_end) >= 2 and (timestamps_end[-1] - timestamps_end[0]) >= pose_duration:
+                                    if (len(timestamps_end) >= 2 and
+                                            (timestamps_end[-1] - timestamps_end[0]) >= pose_duration):
                                         end_detected = True
                                         recording = False
-                                else:
+                                else:  # If a different batch
                                     timestamps_end.clear()
                                     timestamps_end.append(timestamp)
 
@@ -162,6 +169,9 @@ def process_video_single_thread():
         audio_thread.join()
 
         merge_audio_video(raw_video_filename, audio_filename, merged_filename)
+
+        print(f"Starts before normalize: {timestamps_start}")
+        print(f"Ends: {timestamps_end}")
 
         timestamps_start = normalize_timestamps(timestamps_start)
 
@@ -193,9 +203,9 @@ def process_video_single_thread():
 
 
 def subclip(video_path, start_time, end_time, output_file):
-    clip = VideoFileClip(video_path)
-    subclip = clip.subclip(start_time, end_time)
-    subclip.write_videofile(output_file, audio=True, codec="libx264", audio_codec="aac")
+    # with VideoFileClip(video_path) as clip:
+    #     sub = clip.subclip(start_time, end_time)
+    #     sub.write_videofile(output_file, audio=True, codec="libx264", audio_codec="aac")
     subprocess.run([
         "ffmpeg", "-y",
         "-i", video_path,
@@ -221,13 +231,19 @@ def merge_audio_video(video_path, audio_path, output_path):
 
 # === GUI: Camera + Microphone Selector ===
 def list_camera_devices():
-    available = []
-    for i in range(10):
-        cap = cv2.VideoCapture(i)
-        if cap.read()[0]:
-            available.append((i, f"Camera {i}"))
-        cap.release()
-    return available
+    # Initialize Qt application
+    if not QCoreApplication.instance():
+        app = QCoreApplication(sys.argv)
+
+    cameras = QCameraInfo.availableCameras()
+    camera_devices = []
+
+    for i, camera in enumerate(cameras):
+        name = camera.description()
+        camera_devices.append((i, name))
+
+    return camera_devices
+
 
 def list_microphone_devices():
     p = pyaudio.PyAudio()
@@ -244,7 +260,10 @@ def start_gui():
     def on_start():
         global camera_index, microphone_index
         camera_index = cam_var.get()
+        print(f"Camera index: {camera_index}")
+        print(f"Camera name: {cameras[0][1]}")
         microphone_index = mic_var.get()
+        print(f"Mic index: {microphone_index}")
         root.destroy()
         process_video_single_thread()
 
@@ -268,6 +287,7 @@ def start_gui():
     mic_menu.pack()
 
     def update_vars(*args):
+        print(cameras[cam_menu.current()][0])
         cam_var.set(cameras[cam_menu.current()][0])
         mic_var.set(microphones[mic_menu.current()][0])
 
@@ -278,6 +298,79 @@ def start_gui():
     start_btn.pack(pady=10)
 
     root.mainloop()
+
+def calc_landmark_list(image, landmarks):
+    image_width, image_height = image.shape[1], image.shape[0]
+
+    landmark_point = []
+
+    # Keypoint
+    for _, landmark in enumerate(landmarks.landmark):
+        landmark_x = min(int(landmark.x * image_width), image_width - 1)
+        landmark_y = min(int(landmark.y * image_height), image_height - 1)
+        # landmark_z = landmark.z
+
+        landmark_point.append([landmark_x, landmark_y])
+
+    return landmark_point
+
+
+def pre_process_landmark(landmark_list):
+    temp_landmark_list = copy.deepcopy(landmark_list)
+
+    # Convert to relative coordinates
+    base_x, base_y = 0, 0
+    for index, landmark_point in enumerate(temp_landmark_list):
+        if index == 0:
+            base_x, base_y = landmark_point[0], landmark_point[1]
+
+        temp_landmark_list[index][0] = temp_landmark_list[index][0] - base_x
+        temp_landmark_list[index][1] = temp_landmark_list[index][1] - base_y
+
+    # Convert to a one-dimensional list
+    temp_landmark_list = list(
+        itertools.chain.from_iterable(temp_landmark_list))
+
+    # Normalization
+    max_value = max(list(map(abs, temp_landmark_list)))
+
+    def normalize_(n):
+        return n / max_value
+
+    temp_landmark_list = list(map(normalize_, temp_landmark_list))
+
+    return temp_landmark_list
+
+def normalize_timestamps(timestamps):
+    temp_timestamps = []
+    normalized_timestamps = []
+    for idx, timestamp in enumerate(timestamps):    # 2.1 2.2 2.3   5.6 5.7   8.1 8.2 8.3 8.4 8.5
+        # When haven't reached the end
+        if len(timestamps) > idx + 1 and len(timestamps) >= 2:
+            timestamps.sort()
+            # Keep flushing to temp
+            temp_timestamps.append(timestamp)
+            # When reach a different batch
+            if abs(timestamp - timestamps[idx + 1]) > time_between_batches:
+                # Validate current temp batch and clean temp
+                if (len(temp_timestamps) > 0 and
+                        temp_timestamps[len(temp_timestamps) - 1] - temp_timestamps[0] >= pose_duration):
+                    normalized_timestamps.append(temp_timestamps[len(temp_timestamps) - 1])
+                temp_timestamps.clear()
+        # When reach the end
+        elif idx + 1 == len(timestamps) >= 2:
+            # Only process if it is a same-batch stamp since a different-batch stamp being the final stamp is discarded
+            # If same batch -> Still add that final stamp to temp
+            if (len(temp_timestamps) > 0 and
+                    abs(timestamp - temp_timestamps[len(temp_timestamps) - 1]) <= time_between_batches):
+                temp_timestamps.append(timestamp)
+            # Validate current batch and clean temp
+            if (len(temp_timestamps) > 0 and
+                    temp_timestamps[len(temp_timestamps) - 1] - temp_timestamps[0] >= pose_duration):
+                normalized_timestamps.append(temp_timestamps[len(temp_timestamps) - 1])
+            temp_timestamps.clear()
+    return normalized_timestamps
+
 
 if __name__ == "__main__":
     start_gui()
