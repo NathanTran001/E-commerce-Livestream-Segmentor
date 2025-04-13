@@ -10,7 +10,7 @@ import sys
 from collections import Counter
 from collections import deque
 
-from moviepy import VideoFileClip
+from moviepy.editor import VideoFileClip
 from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
 
 import cv2
@@ -38,7 +38,7 @@ def show_frame(frame):
 
 
 def select_video():
-    file_path = filedialog.askopenfilename(filetypes=[("Video files", "*.mp4 *.avi *.mkv")])
+    file_path = filedialog.askopenfilename(filetypes=[("Video files", "*.mp4 *.avi *.mkv *.MOV")])
     if file_path:
         # selected_file.set(f"Selected: {file_path.split('/')[-1]}")
         selected_file.set(file_path)
@@ -58,7 +58,6 @@ def run_main_in_thread():
     thread = threading.Thread(target=main)
     thread.daemon = True  # Ensures thread exits when main program ends
     thread.start()
-
 
 def show_results():
     # Mockup: Populate with example video names (replace with real output)
@@ -142,6 +141,7 @@ def main():
     # APP STARTS #################################################
     video_path = selected_file.get()
     print(f"Processing video: {video_path}")
+    # process_video(video_path)
     process_video_single_thread(video_path)
     show_results()
     # APP ENDS #################################################
@@ -151,6 +151,9 @@ def main():
     print(f"Execution time: {execution_time:.2f} seconds")
 
 
+# 1h3m for a 1080p 3h video (2.4GHz CPU)
+# 57.2m for a 1080p 3h video (3.1GHz CPU)
+# 12.8m for a 720p 1h video (2.4GHz CPU)
 def process_video_single_thread(video_path):
     cap = cv.VideoCapture(video_path)
 
@@ -170,15 +173,11 @@ def process_video_single_thread(video_path):
 
     timestamps_start = []
     timestamps_end = []
-    timestamps_start_raw = []
-    timestamps_end_raw = []
     frame_rate = cap.get(cv.CAP_PROP_FPS)
 
     frame_skip = 5
     frame_count = 0
     end_detected = False
-    timestamp = 0
-    timestamp_previous = 0
 
     # monitor(cap, hands)
 
@@ -209,32 +208,22 @@ def process_video_single_thread(video_path):
                         if len(timestamps_end) == 0:  # If list is empty
                             timestamps_end.append(timestamp)
                         else:
-                            if abs(timestamps_end[0] - timestamp) < 3:  # If still the same batch
+                            if abs(timestamps_end[0] - timestamp) < time_between_batches:  # If still the same batch
                                 timestamps_end.append(timestamp)
-                                if len(timestamps_end) == 3:
+                                if (len(timestamps_end) >= 2 and
+                                        (timestamps_end[-1] - timestamps_end[0]) >= pose_duration):
                                     end_detected = True
                             else:   # If a different batch
                                 timestamps_end.clear()
                                 timestamps_end.append(timestamp)
-
-        # print(f"Starts after loop: {timestamps_start}")
-        # if len(timestamps_start) <= 3:
-        #     print("Start deleted")
-        #     timestamps_start.clear()
-        # if len(timestamps_end) <= 3:
-        #     timestamps_end.clear()
-        # else:
-        #     end_detected = True
         frame_count += 1
 
     cap.release()
 
-    print("starts: ")
     print(timestamps_start)
 
     timestamps_start = normalize_timestamps(timestamps_start)
     # timestamps_end = normalize_timestamps(timestamps_end)
-    print("starts: ")
     print(timestamps_start)
     print("end: ")
     print(timestamps_end)
@@ -246,8 +235,7 @@ def process_video_single_thread(video_path):
         if len(timestamps_start) >= 2 and len(timestamps_start) > idx + 1:
             subclip(video_path, point_to_start, timestamps_start[idx + 1], f"{segment_name}.mp4")
             segment_name = segment_name + 1
-    print(f"start point of last clip: {timestamps_start[len(timestamps_start) - 1]}")
-    start_time = timestamps_start[len(timestamps_start) - 1]
+    start_time = timestamps_start[-1]
     if len(timestamps_end) > 0:
         print(f"end point of last clip: {timestamps_end[0]}")
         end_time = timestamps_end[0]
@@ -291,6 +279,9 @@ def process_frame_worker(args):
     return detected_timestamps  # Return detected timestamps for merging
 
 
+# 54m for a 1080p 3h video (2.5GHz CPU)
+# 52m for a 1080p 3h video (3.1GHz CPU)
+# 8.1m for a 720p 1h video (2.5GHz CPU)
 def process_video(video_path):
     cap = cv.VideoCapture(video_path)
     if not cap.isOpened():
@@ -306,7 +297,7 @@ def process_video(video_path):
 
     pool = mtp.Pool(mtp.cpu_count(), initializer=worker_init)  # Limit workers to save RAM
 
-    batch_size = 100
+    batch_size = 50
     tasks = []
     results = []  # ✅ Store all results
 
@@ -366,22 +357,13 @@ def process_video(video_path):
 ######### HERE ###########
 
 def subclip(video_path, start_time, end_time, output_file):
-    # subprocess.run([
-    #     "ffmpeg", "-y",
-    #     "-i", video_path,
-    #     "-ss", str(start_time),
-    #     "-to", str(end_time),
-    #     "-c:v", "libx264", "-preset", "fast", "-crf", "23",  # Re-encode to avoid frozen frames
-    #     "-c:a", "aac", "-b:a", "128k",  # Copy audio or re-encode if needed
-    #     f"{output_file}"
-    # ])
     subprocess.run([
         "ffmpeg", "-y",
-        "-i", video_path,
         "-ss", str(start_time),
-        "-to", str(end_time),
-        "-c", "copy",  # No re-encoding
-        "-map", "0",  # Avoid duplicate streams
+        "-i", video_path,
+        "-to", str(end_time - start_time),
+        "-force_key_frames", "expr:gte(t,0)",  # Force keyframe at start
+        "-preset", "ultrafast",
         f"{output_file}"
     ])
 
@@ -390,13 +372,9 @@ def normalize_timestamps(timestamps):
     temp_timestamps = []
     normalized_timestamps = []
     for idx, timestamp in enumerate(timestamps):    # 2.1 2.2 2.3   5.6 5.7   8.1 8.2 8.3 8.4 8.5
-        # print(timestamps)
-        # print(temp_timestamps)
-        # print(normalized_timestamps)
         # When haven't reached the end
         if len(timestamps) > idx + 1 and len(timestamps) >= 2:
             timestamps.sort()
-            print("After sort: ", timestamps)
             # Keep flushing to temp
             temp_timestamps.append(timestamp)
             # When reach a different batch

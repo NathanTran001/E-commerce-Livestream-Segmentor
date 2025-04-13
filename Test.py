@@ -9,8 +9,9 @@ import subprocess
 import sys
 from collections import Counter
 from collections import deque
+from functools import partial
 
-from moviepy import VideoFileClip
+from moviepy.editor import VideoFileClip
 from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
 
 import cv2
@@ -38,7 +39,7 @@ def show_frame(frame):
 
 
 def select_video():
-    file_path = filedialog.askopenfilename(filetypes=[("Video files", "*.mp4 *.avi *.mkv")])
+    file_path = filedialog.askopenfilename(filetypes=[("Video files", "*.mp4 *.avi *.mkv *.MOV")])
     if file_path:
         # selected_file.set(f"Selected: {file_path.split('/')[-1]}")
         selected_file.set(file_path)
@@ -141,50 +142,83 @@ def main():
     # APP STARTS #################################################
     video_path = selected_file.get()
     print(f"Processing video: {video_path}")
-    # process_video(video_path)
-    process_video_single_thread(video_path, 0.5)
+
+    # Get available CPU cores (or use a reasonable default)
+    num_cores = mtp.cpu_count()
+    print(f"num_cores: {num_cores}")
+    # Use slightly fewer cores than available to avoid overloading the system
+    num_segments = max(2, num_cores - 1)
+
+    # Process video in parallel
+    timestamps_start, timestamps_end = process_video_parallel(video_path, num_segments)
+
+    # Process the results as before
+    print("starts after normalize: ")
+    print(timestamps_start)
+    print("end: ")
+    print(timestamps_end)
+
+    if not timestamps_start:
+        print("No start points found")
+        return
+
+    # Create clips from the timestamps
+    segment_name = 1
+    for idx, point_to_start in enumerate(timestamps_start):
+        if len(timestamps_start) >= 2 and len(timestamps_start) > idx + 1:
+            subclip(video_path, point_to_start, timestamps_start[idx + 1], f"{segment_name}.mp4")
+            segment_name = segment_name + 1
+
+    print(f"start point of last clip: {timestamps_start[-1]}")
+    start_time_last = timestamps_start[-1]
+
+    if len(timestamps_end) > 0:
+        print(f"end point of last clip: {timestamps_end[0]}")
+        end_time_last = timestamps_end[0]
+        subclip(video_path, start_time_last, end_time_last, f"{segment_name}.mp4")
+    else:
+        subclip(video_path, start_time_last, VideoFileClip(video_path).duration, f"{segment_name}.mp4")
+
     show_results()
     # APP ENDS #################################################
+
     end_time = time.perf_counter()
     execution_time = end_time - start_time
-
     print(f"Execution time: {execution_time:.2f} seconds")
 
 
-# 1h3m for a 1080p 3h video (2.4GHz CPU)
-# 57.2m for a 1080p 3h video (3.1GHz CPU)
-# 12.8m for a 720p 1h video (2.4GHz CPU)
-def process_video_single_thread(video_path, start_time):
+def process_video_segment(video_path, start_time, end_time):
+    """
+    Process a specific segment of the video.
+
+    Args:
+        video_path (str): Path to the video file
+        start_time (float): Time in seconds to start processing
+        end_time (float): Time in seconds to end processing
+
+    Returns:
+        tuple: Lists of timestamps for starts and ends
+    """
     cap = cv.VideoCapture(video_path)
 
     if not cap.isOpened():
-        print("Error: Could not open video.")
-        return
-    frame_count = 0
-    frame_number = 0
+        print(f"Error: Could not open video for segment {start_time}-{end_time}.")
+        return [], []
 
     # Get video details
     frame_rate = cap.get(cv.CAP_PROP_FPS)
-    total_frames = int(cap.get(cv.CAP_PROP_FRAME_COUNT))
 
-    # Set starting position if specified
-    if start_time is not None:
-        if isinstance(start_time, int):
-            # If start_time is in seconds
-            frame_number = int(start_time * frame_rate)
-        elif isinstance(start_time, float):
-            # If start_time is a fraction of the video (e.g., 0.5 for middle)
-            frame_number = int(total_frames * start_time)
+    # Set starting position
+    start_frame = int(start_time * frame_rate)
+    end_frame = int(end_time * frame_rate)
 
-        cap.set(cv.CAP_PROP_POS_FRAMES, frame_number)
-        # Update the frame_count to reflect our starting position
-        frame_count = frame_number
-    else:
-        frame_count = 0
+    cap.set(cv.CAP_PROP_POS_FRAMES, start_frame)
+    frame_count = start_frame
 
+    # Initialize other variables as in your original function
     mp_hands = mp.solutions.hands
-    hands = mp_hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5,
-                           min_tracking_confidence=0.5)
+    hands = mp_hands.Hands(static_image_mode=False, max_num_hands=1,
+                           min_detection_confidence=0.5, min_tracking_confidence=0.5)
 
     keypoint_classifier = KeyPointClassifier()
 
@@ -194,14 +228,12 @@ def process_video_single_thread(video_path, start_time):
 
     timestamps_start = []
     timestamps_end = []
-    frame_rate = cap.get(cv.CAP_PROP_FPS)
 
     frame_skip = 5
     end_detected = False
 
-    # monitor(cap, hands)
-
-    while True and not end_detected:
+    # Process frames until we reach the end frame
+    while frame_count < end_frame and not end_detected:
         ret, image = cap.read()
         if not ret:
             break
@@ -219,11 +251,11 @@ def process_video_single_thread(video_path, start_time):
                     hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
 
                     # Start points
-                    if keypoint_classifier_labels[hand_sign_id] == "Peace":
+                    if keypoint_classifier_labels[hand_sign_id] == "OK":
                         timestamp = frame_count / frame_rate
                         timestamps_start.append(timestamp)
                     # End points
-                    if keypoint_classifier_labels[hand_sign_id] == "OOO" and len(timestamps_start) != 0:
+                    if keypoint_classifier_labels[hand_sign_id] == "Peace" and len(timestamps_start) != 0:
                         timestamp = frame_count / frame_rate
                         if len(timestamps_end) == 0:  # If list is empty
                             timestamps_end.append(timestamp)
@@ -239,32 +271,107 @@ def process_video_single_thread(video_path, start_time):
         frame_count += 1
 
     cap.release()
+    return timestamps_start, timestamps_end
 
-    print("starts before normalize: ")
-    print(timestamps_start)
 
-    timestamps_start = normalize_timestamps(timestamps_start)
-    # timestamps_end = normalize_timestamps(timestamps_end)
-    print("starts after normalize: ")
-    print(timestamps_start)
-    print("end: ")
-    print(timestamps_end)
-    if not timestamps_start:
-        print("No start points found")
-        return
-    segment_name = 1
-    for idx, point_to_start in enumerate(timestamps_start):
-        if len(timestamps_start) >= 2 and len(timestamps_start) > idx + 1:
-            subclip(video_path, point_to_start, timestamps_start[idx + 1], f"{segment_name}.mp4")
-            segment_name = segment_name + 1
-    print(f"start point of last clip: {timestamps_start[-1]}")
-    start_time = timestamps_start[-1]
-    if len(timestamps_end) > 0:
-        print(f"end point of last clip: {timestamps_end[0]}")
-        end_time = timestamps_end[0]
-        subclip(video_path, start_time, end_time, f"{segment_name}.mp4")
-    else:
-        subclip(video_path, start_time, VideoFileClip(video_path).duration, f"{segment_name}.mp4")
+def process_video_parallel(video_path, num_segments=4):
+    """
+    5.2m for a 720p 1h video (2.4GHz CPU)
+
+    Process a video by dividing it into segments and processing them in parallel.
+
+    Args:
+        video_path (str): Path to the video file
+        num_segments (int): Number of segments to divide the video into
+
+    Returns:
+        tuple: Combined lists of start and end timestamps
+    """
+    # Calculate segment boundaries
+    segments = calculate_segment_boundaries(video_path, num_segments)
+    print(f"Dividing video into {num_segments} segments:")
+    for i, (start, end) in enumerate(segments):
+        print(f"  Segment {i + 1}: {start:.2f}s - {end:.2f}s")
+
+    # Create a pool of worker processes
+    pool = mtp.Pool(processes=min(mtp.cpu_count(), num_segments))
+
+    # Create a partial function with the video_path already set
+    process_segment = partial(process_segment_wrapper, video_path=video_path)
+
+    # Process all segments in parallel
+    results = pool.starmap(process_segment, segments)
+
+    # Close the pool
+    pool.close()
+    pool.join()
+
+    # Combine results from all segments
+    all_starts = []
+    all_ends = []
+
+    for starts, ends in results:
+        all_starts.extend(starts)
+        all_ends.extend(ends)
+
+    # Sort the combined timestamps
+    all_starts.sort()
+    all_ends.sort()
+
+    # Normalize timestamps if needed
+    all_starts = normalize_timestamps(all_starts)
+
+    return all_starts, all_ends
+
+
+def process_segment_wrapper(start_time, end_time, video_path):
+    """
+    Wrapper function to be used with pool.starmap().
+    """
+    print(f"Processing segment {start_time:.2f}s - {end_time:.2f}s")
+    return process_video_segment(video_path, start_time, end_time)
+
+
+def calculate_segment_boundaries(video_path, num_segments):
+    """
+    Calculate the starting and ending points for each segment of the video.
+
+    Args:
+        video_path (str): Path to the video file
+        num_segments (int): Number of segments to divide the video into
+
+    Returns:
+        list of tuples: Each tuple contains (start_time, end_time) in seconds
+    """
+    # Open the video to get its duration
+    cap = cv.VideoCapture(video_path)
+    if not cap.isOpened():
+        print("Error: Could not open video.")
+        return []
+
+    # Get total frames and frame rate
+    total_frames = int(cap.get(cv.CAP_PROP_FRAME_COUNT))
+    frame_rate = cap.get(cv.CAP_PROP_FPS)
+    total_duration = total_frames / frame_rate
+
+    cap.release()
+
+    # Calculate segment duration
+    segment_duration = total_duration / num_segments
+
+    # Calculate segment boundaries
+    segments = []
+    for i in range(num_segments):
+        start_time = i * segment_duration
+        end_time = (i + 1) * segment_duration
+        # For the last segment, ensure we go to the exact end
+        if i == num_segments - 1:
+            end_time = total_duration
+
+        segments.append((start_time, end_time))
+
+    return segments
+
 
 ######### HERE ###########
 def worker_init():
@@ -382,14 +489,13 @@ def process_video(video_path):
 def subclip(video_path, start_time, end_time, output_file):
     subprocess.run([
         "ffmpeg", "-y",
-        "-i", video_path,
         "-ss", str(start_time),
-        "-to", str(end_time),
-        "-c", "copy",  # No re-encoding
-        "-map", "0",  # Avoid duplicate streams
+        "-i", video_path,
+        "-to", str(end_time - start_time),
+        "-force_key_frames", "expr:gte(t,0)",  # Force keyframe at start
+        "-preset", "ultrafast",
         f"{output_file}"
     ])
-
 
 def normalize_timestamps(timestamps):
     temp_timestamps = []
