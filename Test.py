@@ -29,8 +29,8 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
-pose_duration = 0.2
-time_between_batches = 2
+pose_duration = 0.7
+time_between_batches = 0.4
 
 ################################# GUI #################################
 # Function to switch between frames (screens)
@@ -152,6 +152,11 @@ def main():
     # Process video in parallel
     timestamps_start, timestamps_end = process_video_parallel(video_path, num_segments)
 
+    if len(timestamps_end) > 0:
+        real_end = timestamps_end[-1]
+        timestamps_end.clear()
+        timestamps_end.append(real_end)
+
     # Process the results as before
     print("starts after normalize: ")
     print(timestamps_start)
@@ -253,23 +258,24 @@ def process_video_segment(video_path, start_time, end_time):
                     # Start points
                     if keypoint_classifier_labels[hand_sign_id] == "OK":
                         timestamp = frame_count / frame_rate
+                        print(f"Found start at {timestamp}")
                         timestamps_start.append(timestamp)
                     # End points
                     if keypoint_classifier_labels[hand_sign_id] == "Peace" and len(timestamps_start) != 0:
                         timestamp = frame_count / frame_rate
+                        print(f"Found end at {timestamp}")
                         if len(timestamps_end) == 0:  # If list is empty
                             timestamps_end.append(timestamp)
                         else:
                             if abs(timestamps_end[0] - timestamp) < time_between_batches:  # If still the same batch
                                 timestamps_end.append(timestamp)
                                 if (len(timestamps_end) >= 2 and
-                                        (timestamps_end[-1] - timestamps_end[0]) >= pose_duration):
+                                        abs(timestamps_end[-1] - timestamps_end[0]) >= pose_duration):
                                     end_detected = True
                             else:   # If a different batch
                                 timestamps_end.clear()
                                 timestamps_end.append(timestamp)
         frame_count += 1
-
     cap.release()
     return timestamps_start, timestamps_end
 
@@ -400,11 +406,12 @@ def process_frame_worker(args):
             hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
 
             timestamp = frame_count / frame_rate
-            if keypoint_classifier_labels[hand_sign_id] == "Peace":
-                print(f"Found one at {timestamp}")
+            if keypoint_classifier_labels[hand_sign_id] == "OK":
+                print(f"Found start at {timestamp}")
                 detected_timestamps.append(("start", timestamp))
-            if keypoint_classifier_labels[hand_sign_id] == "":
+            if keypoint_classifier_labels[hand_sign_id] == "Peace":
                 detected_timestamps.append(("end", timestamp))
+                print(f"Found end at {timestamp}")
 
     return detected_timestamps  # Return detected timestamps for merging
 
@@ -412,78 +419,78 @@ def process_frame_worker(args):
 # 54m for a 1080p 3h video (2.5GHz CPU)
 # 52m for a 1080p 3h video (3.1GHz CPU)
 # 8.1m for a 720p 1h video (2.5GHz CPU)
-def process_video(video_path):
-    cap = cv.VideoCapture(video_path)
-    if not cap.isOpened():
-        print("Error: Could not open video.")
-        return
-
-    frame_rate = cap.get(cv.CAP_PROP_FPS)
-    frame_skip = 5
-    frame_count = 0
-    end_detected = False
-    timestamps_start = []
-    timestamps_end = []
-
-    pool = mtp.Pool(mtp.cpu_count(), initializer=worker_init)  # Limit workers to save RAM
-
-    batch_size = 50
-    tasks = []
-    results = []  # ✅ Store all results
-
-    while True and not end_detected:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        if frame_count % frame_skip == 0:
-            tasks.append((frame_count, frame, frame_rate))
-
-        if len(tasks) >= batch_size:  # Process in batches
-            batch_results = pool.map(process_frame_worker, tasks)
-            results += batch_results  # ✅ Append batch results instead of overwriting
-            tasks.clear()  # Free memory
-
-        frame_count += 1
-
-    cap.release()
-
-    # ✅ Process any remaining frames
-    if tasks:
-        results += pool.map(process_frame_worker, tasks)
-
-    pool.close()
-    pool.join()
-
-    # ✅ Merge results
-    for detected_timestamps in results:
-        for event, timestamp in detected_timestamps:
-            if event == "start":
-                timestamps_start.append(timestamp)
-            elif event == "end":
-                timestamps_end.append(timestamp)
-
-    timestamps_start = normalize_timestamps(timestamps_start)
-    timestamps_end = normalize_timestamps(timestamps_end)
-
-    print("Starts:", timestamps_start)
-    print("Ends:", timestamps_end)
-
-    if not timestamps_start:
-        print("No start points found")
-        return
-    segment_name = 1
-    for idx, point_to_start in enumerate(timestamps_start):
-        if len(timestamps_start) >= 2 and len(timestamps_start) > idx + 1:
-            subclip(video_path, point_to_start, timestamps_start[idx + 1], f"{segment_name}.mp4")
-            segment_name = segment_name + 1
-    print(f"start point of last clip: {timestamps_start[len(timestamps_start) - 1]}")
-    start_time = timestamps_start[len(timestamps_start) - 1]
-    if len(timestamps_end) > 0:
-        print(f"end point of last clip: {timestamps_end[0]}")
-        end_time = timestamps_end[0]
-        subclip(video_path, start_time, end_time, f"{segment_name}.mp4")
-    else:
-        subclip(video_path, start_time, VideoFileClip(video_path).duration, f"{segment_name}.mp4")
+# def process_video(video_path):
+#     cap = cv.VideoCapture(video_path)
+#     if not cap.isOpened():
+#         print("Error: Could not open video.")
+#         return
+#
+#     frame_rate = cap.get(cv.CAP_PROP_FPS)
+#     frame_skip = 5
+#     frame_count = 0
+#     end_detected = False
+#     timestamps_start = []
+#     timestamps_end = []
+#
+#     pool = mtp.Pool(mtp.cpu_count(), initializer=worker_init)  # Limit workers to save RAM
+#
+#     batch_size = 50
+#     tasks = []
+#     results = []  # ✅ Store all results
+#
+#     while True and not end_detected:
+#         ret, frame = cap.read()
+#         if not ret:
+#             break
+#         if frame_count % frame_skip == 0:
+#             tasks.append((frame_count, frame, frame_rate))
+#
+#         if len(tasks) >= batch_size:  # Process in batches
+#             batch_results = pool.map(process_frame_worker, tasks)
+#             results += batch_results  # ✅ Append batch results instead of overwriting
+#             tasks.clear()  # Free memory
+#
+#         frame_count += 1
+#
+#     cap.release()
+#
+#     # ✅ Process any remaining frames
+#     if tasks:
+#         results += pool.map(process_frame_worker, tasks)
+#
+#     pool.close()
+#     pool.join()
+#
+#     # ✅ Merge results
+#     for detected_timestamps in results:
+#         for event, timestamp in detected_timestamps:
+#             if event == "start":
+#                 timestamps_start.append(timestamp)
+#             elif event == "end":
+#                 timestamps_end.append(timestamp)
+#
+#     timestamps_start = normalize_timestamps(timestamps_start)
+#     timestamps_end = normalize_timestamps(timestamps_end)
+#
+#     print("Starts:", timestamps_start)
+#     print("Ends:", timestamps_end)
+#
+#     if not timestamps_start:
+#         print("No start points found")
+#         return
+#     segment_name = 1
+#     for idx, point_to_start in enumerate(timestamps_start):
+#         if len(timestamps_start) >= 2 and len(timestamps_start) > idx + 1:
+#             subclip(video_path, point_to_start, timestamps_start[idx + 1], f"{segment_name}.mp4")
+#             segment_name = segment_name + 1
+#     print(f"start point of last clip: {timestamps_start[len(timestamps_start) - 1]}")
+#     start_time = timestamps_start[len(timestamps_start) - 1]
+#     if len(timestamps_end) > 0:
+#         print(f"end point of last clip: {timestamps_end[0]}")
+#         end_time = timestamps_end[0]
+#         subclip(video_path, start_time, end_time, f"{segment_name}.mp4")
+#     else:
+#         subclip(video_path, start_time, VideoFileClip(video_path).duration, f"{segment_name}.mp4")
 ######### HERE ###########
 
 def subclip(video_path, start_time, end_time, output_file):
@@ -491,10 +498,11 @@ def subclip(video_path, start_time, end_time, output_file):
         "ffmpeg", "-y",
         "-ss", str(start_time),
         "-i", video_path,
-        "-to", str(end_time - start_time),
-        "-force_key_frames", "expr:gte(t,0)",  # Force keyframe at start
-        "-preset", "ultrafast",
-        f"{output_file}"
+        "-t", str(end_time - start_time),
+        "-c:v", "copy",  # Stream copy video - no re-encoding
+        "-c:a", "copy",  # Stream copy audio - no re-encoding
+        "-avoid_negative_ts", "make_zero",  # Helps with frame accuracy
+        output_file
     ])
 
 def normalize_timestamps(timestamps):
