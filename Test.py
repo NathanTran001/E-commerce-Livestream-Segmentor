@@ -502,7 +502,7 @@ def subclip(video_path, start_time, end_time, output_file):
         "-c:v", "copy",  # Stream copy video - no re-encoding
         "-c:a", "copy",  # Stream copy audio - no re-encoding
         "-avoid_negative_ts", "make_zero",  # Helps with frame accuracy
-        output_file
+        f"videos/{output_file}"
     ])
 
 def normalize_timestamps(timestamps):
