@@ -27,91 +27,355 @@ from hand_gesture_recognizer.model.point_history_classifier.point_history_classi
 
 import threading
 import tkinter as tk
+import customtkinter as ctk
 from tkinter import filedialog, messagebox
 
 pose_duration = 0.7
 time_between_batches = 0.4
 
 ################################# GUI #################################
+# Set appearance mode and default color theme for CustomTkinter
+ctk.set_appearance_mode("light")
+ctk.set_default_color_theme("blue")
+
+# Main application window
+root = ctk.CTk()
+root.title("Video to Multiple Short Videos")
+root.geometry("800x600")
+root.resizable(True, True)
+
+
+class VideoSplitterApp:
+    """Application for splitting videos into multiple shorter clips.
+
+    This class provides a CustomTkinter-based GUI for uploading videos
+    and splitting them into shorter segments.
+    """
+
+    def __init__(self, master):
+        """Initialize the application.
+
+        Args:
+            master: The root CTk window of the application.
+        """
+        self.master = master
+        self.selected_file = tk.StringVar()
+
+        # Set up frames for different screens
+        self._setup_frames()
+
+        # Start with the input frame visible
+        self.show_frame(self.input_frame)
+
+    def _setup_frames(self):
+        """Set up the main frames for different application states."""
+        # Create three frames for different states with the same grid position
+        self.input_frame = ctk.CTkFrame(self.master, fg_color="#E8ECEF", corner_radius=0)
+        self.loading_frame = ctk.CTkFrame(self.master, fg_color="#E8ECEF", corner_radius=0)
+        self.results_frame = ctk.CTkFrame(self.master, fg_color="#E8ECEF", corner_radius=0)
+
+        # Stack frames on top of each other
+        for frame in (self.input_frame, self.loading_frame, self.results_frame):
+            frame.grid(row=0, column=0, sticky="nsew")
+
+        # Configure grid to allow expansion
+        self.master.grid_rowconfigure(0, weight=1)
+        self.master.grid_columnconfigure(0, weight=1)
+
+        # Set up each frame's content
+        self._setup_input_frame()
+        self._setup_loading_frame()
+        self._setup_results_frame()
+
+    def _setup_input_frame(self):
+        """Set up the input frame with upload functionality."""
+        # Configure frame layout
+        self.input_frame.grid_columnconfigure(0, weight=1)
+        self.input_frame.grid_rowconfigure(0, weight=0)  # Header
+        self.input_frame.grid_rowconfigure(1, weight=1)  # Drag area
+        self.input_frame.grid_rowconfigure(2, weight=0)  # File label
+        self.input_frame.grid_rowconfigure(3, weight=0)  # Execute button
+        self.input_frame.grid_rowconfigure(4, weight=0)  # Footer
+
+        # Header frame (centered)
+        header_frame = ctk.CTkFrame(self.input_frame, fg_color="white", corner_radius=8)
+        header_frame.grid(row=0, column=0, padx=20, pady=(20, 0), sticky="ew")
+
+        # Configure header for centering
+        header_frame.grid_columnconfigure(0, weight=1)
+
+        # Upload button (centered in header frame)
+        upload_button = ctk.CTkButton(
+            header_frame,
+            text="Upload Video",
+            command=self.select_video,
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        upload_button.grid(row=0, column=0, padx=20, pady=10)
+
+        # Drag-and-drop area
+        drag_area = ctk.CTkFrame(self.input_frame, fg_color="white", corner_radius=8)
+        drag_area.grid(row=1, column=0, padx=20, pady=20, sticky="nsew")
+
+        # Configure drag area for centering
+        drag_area.grid_rowconfigure(0, weight=1)
+        drag_area.grid_rowconfigure(1, weight=0)
+        drag_area.grid_rowconfigure(2, weight=1)
+        drag_area.grid_columnconfigure(0, weight=1)
+
+        # Upload icon (centered)
+        upload_icon = ctk.CTkLabel(
+            drag_area,
+            text="⬆",
+            font=ctk.CTkFont(size=40),
+            text_color="#A9A9A9"
+        )
+        upload_icon.grid(row=0, column=0, padx=20, pady=20)
+
+        # Text labels (centered)
+        drag_label = ctk.CTkLabel(
+            drag_area,
+            text="Select video to upload",
+            font=ctk.CTkFont(size=16)
+        )
+        drag_label.grid(row=1, column=0, padx=20, pady=(0, 5))
+
+        drag_sublabel = ctk.CTkLabel(
+            drag_area,
+            text="Or drag and drop video files",
+            font=ctk.CTkFont(size=14),
+            text_color="gray"
+        )
+        drag_sublabel.grid(row=2, column=0, padx=20, pady=(0, 20))
+
+        # Selected file label
+        file_label = ctk.CTkLabel(
+            self.input_frame,
+            textvariable=self.selected_file,
+            wraplength=700
+        )
+        file_label.grid(row=2, column=0, padx=20, pady=5)
+
+        # Execute button (centered)
+        execute_button = ctk.CTkButton(
+            self.input_frame,
+            text="Execute",
+            command=self.execute_split,
+            width=150,
+            font=ctk.CTkFont(weight="bold")
+        )
+        execute_button.grid(row=3, column=0, padx=20, pady=10)
+
+        # Footer/info section (centered)
+        footer_frame = ctk.CTkFrame(self.input_frame, fg_color="#E8ECEF", corner_radius=0)
+        footer_frame.grid(row=4, column=0, padx=20, pady=(10, 20), sticky="ew")
+
+        # Configure footer for centering
+        footer_frame.grid_columnconfigure(0, weight=1)
+
+        # Version info
+        info_label = ctk.CTkLabel(
+            footer_frame,
+            text="Video to Multiple Short Videos App v1.0",
+            font=ctk.CTkFont(size=12),
+            text_color="gray"
+        )
+        info_label.grid(row=0, column=0, padx=20, pady=(5, 0))
+
+        # Description
+        desc_label = ctk.CTkLabel(
+            footer_frame,
+            text="Easily split your videos into shorter clips!",
+            font=ctk.CTkFont(size=12),
+            text_color="gray"
+        )
+        desc_label.grid(row=1, column=0, padx=20, pady=(0, 5))
+
+    def _setup_loading_frame(self):
+        """Set up the loading screen for processing indication."""
+        # Configure frame layout
+        self.loading_frame.grid_columnconfigure(0, weight=1)
+        self.loading_frame.grid_rowconfigure(0, weight=1)
+
+        # Loading elements
+        loading_label = ctk.CTkLabel(
+            self.loading_frame,
+            text="Processing your video...",
+            font=ctk.CTkFont(size=20),
+            text_color="#606770"
+        )
+        loading_label.grid(row=0, column=0, padx=20, pady=20)
+
+        # Loading progress bar (centered)
+        progress = ctk.CTkProgressBar(self.loading_frame, width=300)
+        progress.grid(row=1, column=0, padx=20, pady=20)
+        progress.configure(mode="indeterminate")
+        progress.start()
+
+    def _setup_results_frame(self):
+        """Set up the results frame to display processed video clips."""
+        # Configure frame layout
+        self.results_frame.grid_columnconfigure(0, weight=1)
+        self.results_frame.grid_rowconfigure(0, weight=0)  # Header
+        self.results_frame.grid_rowconfigure(1, weight=1)  # Video grid
+        self.results_frame.grid_rowconfigure(2, weight=0)  # Back button
+
+        # Header for results (centered)
+        results_header = ctk.CTkFrame(self.results_frame, fg_color="white", corner_radius=8)
+        results_header.grid(row=0, column=0, padx=20, pady=(20, 0), sticky="ew")
+
+        # Configure header for centering
+        results_header.grid_columnconfigure(0, weight=1)
+
+        # Results title
+        results_label = ctk.CTkLabel(
+            results_header,
+            text="Your Short Videos",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color="#606770"
+        )
+        results_label.grid(row=0, column=0, padx=20, pady=10)
+
+        # Scrollable frame for videos (centered)
+        self.scrollable_frame = ctk.CTkScrollableFrame(
+            self.results_frame,
+            fg_color="#E8ECEF",
+            corner_radius=8
+        )
+        self.scrollable_frame.grid(row=1, column=0, padx=20, pady=20, sticky="nsew")
+
+        # Back button (centered)
+        back_button = ctk.CTkButton(
+            self.results_frame,
+            text="Back",
+            command=lambda: self.show_frame(self.input_frame),
+            width=150,
+            font=ctk.CTkFont(weight="bold")
+        )
+        back_button.grid(row=2, column=0, padx=20, pady=20)
+
+    def show_frame(self, frame):
+        """Bring the specified frame to the front.
+
+        Args:
+            frame: The frame to display.
+        """
+        frame.tkraise()
+
+    def select_video(self):
+        """Open file dialog to select a video file."""
+        file_path = filedialog.askopenfilename(
+            filetypes=[("Video files", "*.mp4 *.avi *.mkv")]
+        )
+        if file_path:
+            self.selected_file.set(file_path)
+
+    def execute_split(self):
+        """Process the video and show results."""
+        if not self.selected_file.get():
+            messagebox.showwarning("No File", "Please select a video first!")
+            return
+
+        self.show_frame(self.loading_frame)
+        run_main_in_thread()
+
+
+    def show_results(self):
+        """Display the results screen with processed videos."""
+        self.populate_videos()
+        self.show_frame(self.results_frame)
+
+    def populate_videos(self):
+        """Create example video thumbnail entries in the results screen."""
+        # Clear existing widgets in scrollable frame
+        for widget in self.scrollable_frame.winfo_children():
+            widget.destroy()
+
+        # Create a 3-column grid for videos
+        self.scrollable_frame.grid_columnconfigure(0, weight=1)
+        self.scrollable_frame.grid_columnconfigure(1, weight=1)
+        self.scrollable_frame.grid_columnconfigure(2, weight=1)
+
+        # Create mock video thumbnails
+        for i in range(5):  # Mock 5 videos
+            video_frame = ctk.CTkFrame(self.scrollable_frame, fg_color="white", corner_radius=8)
+            video_frame.grid(row=i // 3, column=i % 3, padx=10, pady=10, sticky="nsew")
+
+            # Configure video frame for centering content
+            video_frame.grid_columnconfigure(0, weight=1)
+
+            # Placeholder for video thumbnail
+            thumbnail = ctk.CTkLabel(
+                video_frame,
+                text="[Video Thumbnail]",
+                fg_color="#E8ECEF",
+                text_color="#606770",
+                width=180,
+                height=120,
+                corner_radius=4
+            )
+            thumbnail.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
+
+            # Video title
+            title = ctk.CTkLabel(
+                video_frame,
+                text=f"short_video_{i + 1}.mp4",
+                font=ctk.CTkFont(size=12),
+                text_color="#1A73E8"
+            )
+            title.grid(row=1, column=0, padx=10, pady=(0, 5))
+
+            # Mock views
+            views = ctk.CTkLabel(
+                video_frame,
+                text="0 views",
+                font=ctk.CTkFont(size=10),
+                text_color="gray"
+            )
+            views.grid(row=2, column=0, padx=10, pady=(0, 5))
+
+            # Button frame (centered)
+            button_frame = ctk.CTkFrame(video_frame, fg_color="white", corner_radius=0)
+            button_frame.grid(row=3, column=0, padx=10, pady=(0, 10), sticky="ew")
+
+            # Center the buttons within the frame
+            button_frame.grid_columnconfigure(0, weight=1)
+            button_frame.grid_columnconfigure(1, weight=1)
+            button_frame.grid_columnconfigure(2, weight=1)
+
+            # Action buttons
+            embed_btn = ctk.CTkButton(
+                button_frame,
+                text="</>",
+                font=ctk.CTkFont(size=10),
+                width=50,
+                height=25
+            )
+            embed_btn.grid(row=0, column=0, padx=2, pady=5)
+
+            edit_btn = ctk.CTkButton(
+                button_frame,
+                text="Edit",
+                font=ctk.CTkFont(size=10),
+                width=50,
+                height=25
+            )
+            edit_btn.grid(row=0, column=1, padx=2, pady=5)
+
+            more_btn = ctk.CTkButton(
+                button_frame,
+                text="•••",
+                font=ctk.CTkFont(size=10),
+                width=50,
+                height=25
+            )
+            more_btn.grid(row=0, column=2, padx=2, pady=5)
+
 # Function to switch between frames (screens)
-def show_frame(frame):
-    frame.tkraise()
-
-
-def select_video():
-    file_path = filedialog.askopenfilename(filetypes=[("Video files", "*.mp4 *.avi *.mkv *.MOV")])
-    if file_path:
-        # selected_file.set(f"Selected: {file_path.split('/')[-1]}")
-        selected_file.set(file_path)
-    print(selected_file.get())
-
-
-def execute_split():
-    if not selected_file.get():
-        messagebox.showwarning("No File", "Please select a video first!")
-        return
-    show_frame(loading_frame)
-    # this freezes the frame
-    run_main_in_thread()
-
-
 def run_main_in_thread():
     thread = threading.Thread(target=main)
     thread.daemon = True  # Ensures thread exits when main program ends
     thread.start()
-
-def show_results():
-    # Mockup: Populate with example video names (replace with real output)
-    video_list.delete(0, tk.END)
-    for i in range(1, 6):
-        video_list.insert(tk.END, f"short_video_{i}.mp4")
-    show_frame(results_frame)
-
-# Main application window
-root = tk.Tk()
-root.title("Video to Multiple Short Videos")
-root.geometry("400x300")
-root.resizable(False, False)
-
-# Create three frames for different states
-input_frame = tk.Frame(root)
-loading_frame = tk.Frame(root)
-results_frame = tk.Frame(root)
-selected_file = tk.StringVar()
-
-# Scrollable listbox to display cut video names (mockup)
-scrollbar = tk.Scrollbar(results_frame)
-video_list = tk.Listbox(results_frame, height=10, width=50, yscrollcommand=scrollbar.set)
-scrollbar.config(command=video_list.yview)
-scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-video_list.pack(pady=10)
-
-# Stack frames on top of each other
-for frame in (input_frame, loading_frame, results_frame):
-    frame.grid(row=0, column=0, sticky="nsew")
-
-# --- Input Frame (Initial Screen) ---
-input_label = tk.Label(input_frame, text="Select a video to split", font=("Arial", 14))
-input_label.pack(pady=20)
-
-file_label = tk.Label(input_frame, textvariable=selected_file, wraplength=350)
-file_label.pack(pady=10)
-select_button = tk.Button(input_frame, text="Select Video", command=select_video, width=15)
-select_button.pack(pady=10)
-
-execute_button = tk.Button(input_frame, text="Execute", command=execute_split, width=15)
-execute_button.pack(pady=20)
-
-# --- Loading Frame ---
-loading_label = tk.Label(loading_frame, text="Processing your video...", font=("Arial", 16))
-loading_label.pack(expand=True)
-
-# --- Results Frame ---
-results_label = tk.Label(results_frame, text="Your Short Videos", font=("Arial", 14))
-results_label.pack(pady=10)
-
-back_button = tk.Button(results_frame, text="Back", command=lambda: show_frame(input_frame), width=15)
-back_button.pack(pady=10)
 ################################# GUI #################################
 
 def get_args():
@@ -140,7 +404,10 @@ def main():
     start_time = time.perf_counter()
 
     # APP STARTS #################################################
-    video_path = selected_file.get()
+
+    # Create App instance and run it
+
+    video_path = app.selected_file.get()
     print(f"Processing video: {video_path}")
 
     # Get available CPU cores (or use a reasonable default)
@@ -151,11 +418,6 @@ def main():
 
     # Process video in parallel
     timestamps_start, timestamps_end = process_video_parallel(video_path, num_segments)
-
-    if len(timestamps_end) > 0:
-        real_end = timestamps_end[-1]
-        timestamps_end.clear()
-        timestamps_end.append(real_end)
 
     # Process the results as before
     print("starts after normalize: ")
@@ -184,7 +446,8 @@ def main():
     else:
         subclip(video_path, start_time_last, VideoFileClip(video_path).duration, f"{segment_name}.mp4")
 
-    show_results()
+    app.show_results()
+    # VideoSplitterApp.show_results(app)
     # APP ENDS #################################################
 
     end_time = time.perf_counter()
@@ -256,12 +519,12 @@ def process_video_segment(video_path, start_time, end_time):
                     hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
 
                     # Start points
-                    if keypoint_classifier_labels[hand_sign_id] == "OK":
+                    if keypoint_classifier_labels[hand_sign_id] == "Peace":
                         timestamp = frame_count / frame_rate
                         print(f"Found start at {timestamp}")
                         timestamps_start.append(timestamp)
                     # End points
-                    if keypoint_classifier_labels[hand_sign_id] == "Peace" and len(timestamps_start) != 0:
+                    if keypoint_classifier_labels[hand_sign_id] == "Open" and len(timestamps_start) != 0:
                         timestamp = frame_count / frame_rate
                         print(f"Found end at {timestamp}")
                         if len(timestamps_end) == 0:  # If list is empty
@@ -326,6 +589,16 @@ def process_video_parallel(video_path, num_segments=4):
 
     # Normalize timestamps if needed
     all_starts = normalize_timestamps(all_starts)
+    all_ends = normalize_timestamps(all_ends)
+    if len(all_ends) > 0 and len(all_starts) > 0:
+        if all_ends[-1] > all_starts[0]:
+            real_end = all_ends[-1]
+            all_ends.clear()
+            all_ends.append(real_end)
+        else:
+            all_ends.clear()
+    else:
+        all_ends.clear()
 
     return all_starts, all_ends
 
@@ -379,120 +652,6 @@ def calculate_segment_boundaries(video_path, num_segments):
     return segments
 
 
-######### HERE ###########
-def worker_init():
-    """ Each process initializes its own MediaPipe and classifier. """
-    global hands, keypoint_classifier, keypoint_classifier_labels
-    hands = mp.solutions.hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5,
-                                     min_tracking_confidence=0.5)
-    keypoint_classifier = KeyPointClassifier()
-
-    with open('hand_gesture_recognizer/model/keypoint_classifier/keypoint_classifier_label.csv',
-              encoding='utf-8-sig') as f:
-        keypoint_classifier_labels = [row[0] for row in csv.reader(f)]
-
-
-def process_frame_worker(args):
-    """ Process a single frame and detect hand gestures. """
-    frame_count, frame, frame_rate = args
-    image = cv.cvtColor(frame, cv.COLOR_BGR2RGB)
-    results = hands.process(image)
-
-    detected_timestamps = []
-    if results.multi_hand_landmarks:
-        for hand_landmarks in results.multi_hand_landmarks:
-            landmark_list = calc_landmark_list(image, hand_landmarks)
-            pre_processed_landmark_list = pre_process_landmark(landmark_list)
-            hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
-
-            timestamp = frame_count / frame_rate
-            if keypoint_classifier_labels[hand_sign_id] == "OK":
-                print(f"Found start at {timestamp}")
-                detected_timestamps.append(("start", timestamp))
-            if keypoint_classifier_labels[hand_sign_id] == "Peace":
-                detected_timestamps.append(("end", timestamp))
-                print(f"Found end at {timestamp}")
-
-    return detected_timestamps  # Return detected timestamps for merging
-
-
-# 54m for a 1080p 3h video (2.5GHz CPU)
-# 52m for a 1080p 3h video (3.1GHz CPU)
-# 8.1m for a 720p 1h video (2.5GHz CPU)
-# def process_video(video_path):
-#     cap = cv.VideoCapture(video_path)
-#     if not cap.isOpened():
-#         print("Error: Could not open video.")
-#         return
-#
-#     frame_rate = cap.get(cv.CAP_PROP_FPS)
-#     frame_skip = 5
-#     frame_count = 0
-#     end_detected = False
-#     timestamps_start = []
-#     timestamps_end = []
-#
-#     pool = mtp.Pool(mtp.cpu_count(), initializer=worker_init)  # Limit workers to save RAM
-#
-#     batch_size = 50
-#     tasks = []
-#     results = []  # ✅ Store all results
-#
-#     while True and not end_detected:
-#         ret, frame = cap.read()
-#         if not ret:
-#             break
-#         if frame_count % frame_skip == 0:
-#             tasks.append((frame_count, frame, frame_rate))
-#
-#         if len(tasks) >= batch_size:  # Process in batches
-#             batch_results = pool.map(process_frame_worker, tasks)
-#             results += batch_results  # ✅ Append batch results instead of overwriting
-#             tasks.clear()  # Free memory
-#
-#         frame_count += 1
-#
-#     cap.release()
-#
-#     # ✅ Process any remaining frames
-#     if tasks:
-#         results += pool.map(process_frame_worker, tasks)
-#
-#     pool.close()
-#     pool.join()
-#
-#     # ✅ Merge results
-#     for detected_timestamps in results:
-#         for event, timestamp in detected_timestamps:
-#             if event == "start":
-#                 timestamps_start.append(timestamp)
-#             elif event == "end":
-#                 timestamps_end.append(timestamp)
-#
-#     timestamps_start = normalize_timestamps(timestamps_start)
-#     timestamps_end = normalize_timestamps(timestamps_end)
-#
-#     print("Starts:", timestamps_start)
-#     print("Ends:", timestamps_end)
-#
-#     if not timestamps_start:
-#         print("No start points found")
-#         return
-#     segment_name = 1
-#     for idx, point_to_start in enumerate(timestamps_start):
-#         if len(timestamps_start) >= 2 and len(timestamps_start) > idx + 1:
-#             subclip(video_path, point_to_start, timestamps_start[idx + 1], f"{segment_name}.mp4")
-#             segment_name = segment_name + 1
-#     print(f"start point of last clip: {timestamps_start[len(timestamps_start) - 1]}")
-#     start_time = timestamps_start[len(timestamps_start) - 1]
-#     if len(timestamps_end) > 0:
-#         print(f"end point of last clip: {timestamps_end[0]}")
-#         end_time = timestamps_end[0]
-#         subclip(video_path, start_time, end_time, f"{segment_name}.mp4")
-#     else:
-#         subclip(video_path, start_time, VideoFileClip(video_path).duration, f"{segment_name}.mp4")
-######### HERE ###########
-
 def subclip(video_path, start_time, end_time, output_file):
     subprocess.run([
         "ffmpeg", "-y",
@@ -504,6 +663,7 @@ def subclip(video_path, start_time, end_time, output_file):
         "-avoid_negative_ts", "make_zero",  # Helps with frame accuracy
         f"videos/{output_file}"
     ])
+
 
 def normalize_timestamps(timestamps):
     temp_timestamps = []
@@ -518,20 +678,20 @@ def normalize_timestamps(timestamps):
             if abs(timestamp - timestamps[idx + 1]) > time_between_batches:
                 # Validate current temp batch and clean temp
                 if (len(temp_timestamps) > 0 and
-                        temp_timestamps[len(temp_timestamps) - 1] - temp_timestamps[0] >= pose_duration):
-                    normalized_timestamps.append(temp_timestamps[len(temp_timestamps) - 1])
+                        temp_timestamps[-1] - temp_timestamps[0] >= pose_duration):
+                    normalized_timestamps.append(temp_timestamps[-1])
                 temp_timestamps.clear()
         # When reach the end
         elif idx + 1 == len(timestamps) >= 2:
             # Only process if it is a same-batch stamp since a different-batch stamp being the final stamp is discarded
             # If same batch -> Still add that final stamp to temp
             if (len(temp_timestamps) > 0 and
-                    abs(timestamp - temp_timestamps[len(temp_timestamps) - 1]) <= time_between_batches):
+                    abs(timestamp - temp_timestamps[-1]) <= time_between_batches):
                 temp_timestamps.append(timestamp)
             # Validate current batch and clean temp
             if (len(temp_timestamps) > 0 and
-                    temp_timestamps[len(temp_timestamps) - 1] - temp_timestamps[0] >= pose_duration):
-                normalized_timestamps.append(temp_timestamps[len(temp_timestamps) - 1])
+                    temp_timestamps[-1] - temp_timestamps[0] >= pose_duration):
+                normalized_timestamps.append(temp_timestamps[-1])
             temp_timestamps.clear()
     return normalized_timestamps
 
@@ -1164,7 +1324,8 @@ def monitor(cap, hands):
 
 if __name__ == "__main__":
     # Start with the input frame visible
-    show_frame(input_frame)
-
+    # show_frame(input_frame)
+    # main()
     # Run the application
+    app = VideoSplitterApp(root)
     root.mainloop()
