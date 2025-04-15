@@ -6,6 +6,7 @@ import argparse
 import itertools
 import os
 import subprocess
+import sys
 from collections import Counter
 from collections import deque
 from datetime import datetime
@@ -27,7 +28,7 @@ from hand_gesture_recognizer.model.point_history_classifier.point_history_classi
 import threading
 import tkinter as tk
 import customtkinter as ctk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, simpledialog
 
 pose_duration = 0.8
 time_between_batches = 0.4
@@ -61,6 +62,8 @@ class VideoSplitterApp:
         """
         self.master = master
         self.selected_file = tk.StringVar()
+        # Get current date and time
+        self.date_time = tk.StringVar()
 
         # Set up frames for different screens
         self._setup_frames()
@@ -287,25 +290,62 @@ class VideoSplitterApp:
         self.show_frame(self.results_frame)
 
     def populate_videos(self):
-        """Create example video thumbnail entries in the results screen."""
+        """Create video thumbnail entries from real videos in the results screen."""
         # Clear existing widgets in scrollable frame
         for widget in self.scrollable_frame.winfo_children():
             widget.destroy()
+
+        # Get the folder path with real videos
+        folder_path = f'videos/{self.date_time.get()}'
+
+        # Check if folder exists
+        if not os.path.exists(folder_path):
+            # Show no videos message
+            no_videos_label = ctk.CTkLabel(
+                self.scrollable_frame,
+                text="No videos found in the specified folder",
+                font=ctk.CTkFont(size=14),
+                text_color="gray"
+            )
+            no_videos_label.pack(pady=50)
+            return
+
+        # Get list of video files
+        video_files = [f for f in os.listdir(folder_path)
+                       if f.lower().endswith(('.mp4', '.avi', '.mkv', '.mov'))]
+
+        if not video_files:
+            # Show no videos message
+            no_videos_label = ctk.CTkLabel(
+                self.scrollable_frame,
+                text="No video files found in the folder",
+                font=ctk.CTkFont(size=14),
+                text_color="gray"
+            )
+            no_videos_label.pack(pady=50)
+            return
 
         # Create a 3-column grid for videos
         self.scrollable_frame.grid_columnconfigure(0, weight=1)
         self.scrollable_frame.grid_columnconfigure(1, weight=1)
         self.scrollable_frame.grid_columnconfigure(2, weight=1)
 
-        # Create mock video thumbnails
-        for i in range(5):  # Mock 5 videos
+        # Create video entries
+        for i, video_file in enumerate(video_files):
+            video_path = os.path.join(folder_path, video_file)
+
+            # Get video metadata if possible (optional)
+            file_size = os.path.getsize(video_path) / (1024 * 1024)  # Convert to MB
+
+            # Create frame for this video
             video_frame = ctk.CTkFrame(self.scrollable_frame, fg_color="white", corner_radius=8)
             video_frame.grid(row=i // 3, column=i % 3, padx=10, pady=10, sticky="nsew")
 
             # Configure video frame for centering content
             video_frame.grid_columnconfigure(0, weight=1)
 
-            # Placeholder for video thumbnail
+            # Placeholder for video thumbnail (still using placeholder since generating
+            # actual thumbnails requires additional processing)
             thumbnail = ctk.CTkLabel(
                 video_frame,
                 text="[Video Thumbnail]",
@@ -317,23 +357,24 @@ class VideoSplitterApp:
             )
             thumbnail.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
 
-            # Video title
+            # Video title (actual filename)
             title = ctk.CTkLabel(
                 video_frame,
-                text=f"short_video_{i + 1}.mp4",
+                text=video_file,
                 font=ctk.CTkFont(size=12),
-                text_color="#1A73E8"
+                text_color="#1A73E8",
+                wraplength=180  # Wrap long filenames
             )
             title.grid(row=1, column=0, padx=10, pady=(0, 5))
 
-            # Mock views
-            views = ctk.CTkLabel(
+            # File size info
+            file_info = ctk.CTkLabel(
                 video_frame,
-                text="0 views",
+                text=f"{file_size:.1f} MB",
                 font=ctk.CTkFont(size=10),
                 text_color="gray"
             )
-            views.grid(row=2, column=0, padx=10, pady=(0, 5))
+            file_info.grid(row=2, column=0, padx=10, pady=(0, 5))
 
             # Button frame (centered)
             button_frame = ctk.CTkFrame(video_frame, fg_color="white", corner_radius=0)
@@ -344,33 +385,106 @@ class VideoSplitterApp:
             button_frame.grid_columnconfigure(1, weight=1)
             button_frame.grid_columnconfigure(2, weight=1)
 
-            # Action buttons
-            embed_btn = ctk.CTkButton(
+            # Play button - replace embed button
+            play_btn = ctk.CTkButton(
                 button_frame,
-                text="</>",
+                text="Play",
                 font=ctk.CTkFont(size=10),
                 width=50,
-                height=25
+                height=25,
+                command=lambda v=video_path: self.play_video(v)
             )
-            embed_btn.grid(row=0, column=0, padx=2, pady=5)
+            play_btn.grid(row=0, column=0, padx=2, pady=5)
 
-            edit_btn = ctk.CTkButton(
+            # Open folder button - replace edit button
+            folder_btn = ctk.CTkButton(
                 button_frame,
-                text="Edit",
+                text="Folder",
                 font=ctk.CTkFont(size=10),
                 width=50,
-                height=25
+                height=25,
+                command=lambda f=folder_path: self.open_folder(self.selected_file.get())
             )
-            edit_btn.grid(row=0, column=1, padx=2, pady=5)
+            folder_btn.grid(row=0, column=1, padx=2, pady=5)
 
+            # More options button
             more_btn = ctk.CTkButton(
                 button_frame,
                 text="•••",
                 font=ctk.CTkFont(size=10),
                 width=50,
-                height=25
+                height=25,
+                command=lambda v=video_path: self.show_options(v)
             )
             more_btn.grid(row=0, column=2, padx=2, pady=5)
+
+    def play_video(self, video_path):
+        """Open the video in the default video player"""
+        try:
+            if os.name == 'nt':  # Windows
+                os.startfile(video_path)
+            elif os.name == 'posix':  # macOS, Linux
+                import subprocess
+                subprocess.call(('open', video_path) if sys.platform == 'darwin' else ('xdg-open', video_path))
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not open video: {e}")
+
+    def open_folder(self, folder_path):
+        """Open the folder containing the videos"""
+        folder_path = folder_path.rsplit('/', 1)[0]
+        try:
+            if os.name == 'nt':  # Windows
+                os.startfile(folder_path)
+            elif os.name == 'posix':  # macOS, Linux
+                import subprocess
+                subprocess.call(('open', folder_path) if sys.platform == 'darwin' else ('xdg-open', folder_path))
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not open folder: {e}")
+
+    def show_options(self, video_path):
+        """Show additional options for the video"""
+        options = ["Rename", "Delete", "Copy path"]
+
+        # Create a simple popup menu
+        popup = tk.Menu(self.master, tearoff=0)
+        popup.add_command(label="Rename", command=lambda: self.rename_video(video_path))
+        popup.add_command(label="Delete", command=lambda: self.delete_video(video_path))
+        popup.add_command(label="Copy path", command=lambda: self.copy_path(video_path))
+
+        # Display the popup menu
+        try:
+            popup.tk_popup(self.master.winfo_pointerx(), self.master.winfo_pointery())
+        finally:
+            popup.grab_release()
+
+    def rename_video(self, video_path):
+        """Rename the video file"""
+        old_name = os.path.basename(video_path)
+        new_name = simpledialog.askstring("Rename", "Enter new name:", initialvalue=old_name)
+
+        if new_name and new_name != old_name:
+            try:
+                new_path = os.path.join(os.path.dirname(video_path), new_name)
+                os.rename(video_path, new_path)
+                self.populate_videos()  # Refresh the view
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not rename file: {e}")
+
+    def delete_video(self, video_path):
+        """Delete the video file"""
+        if messagebox.askyesno("Confirm Delete",
+                               f"Are you sure you want to delete {os.path.basename(video_path)}?"):
+            try:
+                os.remove(video_path)
+                self.populate_videos()  # Refresh the view
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not delete file: {e}")
+
+    def copy_path(self, video_path):
+        """Copy the video path to clipboard"""
+        self.master.clipboard_clear()
+        self.master.clipboard_append(video_path)
+        messagebox.showinfo("Info", "Path copied to clipboard")
 
 # Function to switch between frames (screens)
 def run_main_in_thread():
@@ -426,15 +540,15 @@ def main():
     print("end: ")
     print(timestamps_end)
 
+    app.date_time.set(datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+
     if not timestamps_start:
         print("No start points found")
+        app.show_results()
         return
 
-    # Get current date and time
-    current_datetime = datetime.now()
-
     # Convert to string with a specific format
-    datetime_string = current_datetime.strftime("%Y-%m-%d_%H-%M-%S")
+    datetime_string = app.date_time.get()
 
     # Create clips from the timestamps
     segment_name = 1
@@ -454,7 +568,6 @@ def main():
         subclip(datetime_string, video_path, start_time_last, VideoFileClip(video_path).duration, f"{segment_name}.mp4")
 
     app.show_results()
-    # VideoSplitterApp.show_results(app)
     # APP ENDS #################################################
 
     end_time = time.perf_counter()
