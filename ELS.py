@@ -10,6 +10,7 @@ import subprocess
 import sys
 from collections import Counter
 from collections import deque
+from datetime import datetime
 from functools import partial
 
 from moviepy.editor import VideoFileClip
@@ -31,7 +32,7 @@ import tkinter as tk
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 
-pose_duration = 0.7
+pose_duration = 0.8
 time_between_batches = 0.4
 start_sign = "OK"
 end_sign = "Peace"
@@ -432,11 +433,17 @@ def main():
         print("No start points found")
         return
 
+    # Get current date and time
+    current_datetime = datetime.now()
+
+    # Convert to string with a specific format
+    datetime_string = current_datetime.strftime("%Y-%m-%d_%H-%M-%S")
+
     # Create clips from the timestamps
     segment_name = 1
     for idx, point_to_start in enumerate(timestamps_start):
         if len(timestamps_start) >= 2 and len(timestamps_start) > idx + 1:
-            subclip(video_path, point_to_start, timestamps_start[idx + 1], f"{segment_name}.mp4")
+            subclip(datetime_string, video_path, point_to_start, timestamps_start[idx + 1], f"{segment_name}.mp4")
             segment_name = segment_name + 1
 
     print(f"start point of last clip: {timestamps_start[-1]}")
@@ -445,9 +452,9 @@ def main():
     if len(timestamps_end) > 0:
         print(f"end point of last clip: {timestamps_end[0]}")
         end_time_last = timestamps_end[0]
-        subclip(video_path, start_time_last, end_time_last, f"{segment_name}.mp4")
+        subclip(datetime_string, video_path, start_time_last, end_time_last, f"{segment_name}.mp4")
     else:
-        subclip(video_path, start_time_last, VideoFileClip(video_path).duration, f"{segment_name}.mp4")
+        subclip(datetime_string, video_path, start_time_last, VideoFileClip(video_path).duration, f"{segment_name}.mp4")
 
     app.show_results()
     # VideoSplitterApp.show_results(app)
@@ -500,7 +507,9 @@ def process_video_segment(video_path, start_time, end_time):
     timestamps_start = []
     timestamps_end = []
 
-    frame_skip = 5
+    initialize_dynamic_parameters(frame_rate)
+    frame_skip = calculate_frames_to_skip(frame_rate)
+    print(f"Frame skip: {frame_skip}")
     end_detected = False
 
     # Process frames until we reach the end frame
@@ -511,6 +520,10 @@ def process_video_segment(video_path, start_time, end_time):
 
         # Skip frames for speed
         if frame_count % frame_skip == 0:
+
+            timestamp = frame_count / frame_rate
+            print(f"{timestamp}")
+
             image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
             results = hands.process(image)
 
@@ -523,17 +536,13 @@ def process_video_segment(video_path, start_time, end_time):
 
                     # Start points
                     if keypoint_classifier_labels[hand_sign_id] == start_sign:
-                        timestamp = frame_count / frame_rate
-                        print(f"Found start at {timestamp}")
                         timestamps_start.append(timestamp)
                     # End points
-                    if keypoint_classifier_labels[hand_sign_id] == end_sign and len(timestamps_start) != 0:
-                        timestamp = frame_count / frame_rate
-                        print(f"Found end at {timestamp}")
+                    if keypoint_classifier_labels[hand_sign_id] == end_sign:
                         if len(timestamps_end) == 0:  # If list is empty
                             timestamps_end.append(timestamp)
                         else:
-                            if abs(timestamps_end[0] - timestamp) < time_between_batches:  # If still the same batch
+                            if abs(timestamps_end[-1] - timestamp) <= time_between_batches:  # If still the same batch
                                 timestamps_end.append(timestamp)
                                 if (len(timestamps_end) >= 2 and
                                         abs(timestamps_end[-1] - timestamps_end[0]) >= pose_duration):
@@ -544,6 +553,63 @@ def process_video_segment(video_path, start_time, end_time):
         frame_count += 1
     cap.release()
     return timestamps_start, timestamps_end
+
+
+def initialize_dynamic_parameters(fps):
+    """
+    Initialize global parameters based on frame rate.
+
+    Args:
+        fps (float): Frames per second of the video
+    """
+    global pose_duration, time_between_batches
+
+    # Reference values optimized for 30fps video
+    reference_fps = 30.0
+    reference_pose_duration = pose_duration
+    reference_time_between_batches = time_between_batches
+
+    # Scale parameters linearly with frame rate ratio
+    fps_ratio = reference_fps / fps
+
+    # Apply scaling - slower videos need more time, faster videos need less
+    pose_duration = reference_pose_duration * fps_ratio
+    time_between_batches = reference_time_between_batches * fps_ratio
+
+    print(f"Dynamic parameters for {fps}fps video:")
+    print(f"- Pose duration: {pose_duration:.2f}s")
+    print(f"- Time between batches: {time_between_batches:.2f}s")
+
+
+def calculate_frames_to_skip(fps):
+    """
+    Calculate how many frames to skip while maintaining reliable detection.
+
+    Args:
+        fps (float): Frames per second of the video
+
+    Returns:
+        int: Number of frames to skip between processed frames
+    """
+    # Reference values for 30fps
+    reference_fps = 30.0
+    reference_min_detection_window = pose_duration
+    reference_min_samples = 3
+
+    # Scale detection window based on fps ratio
+    fps_ratio = reference_fps / fps
+    min_detection_window_seconds = reference_min_detection_window * fps_ratio
+
+    # Calculate how many frames we need to check within our minimum detection window
+    frames_in_window = fps * min_detection_window_seconds
+
+    # Calculate maximum frames to skip while still getting enough samples
+    max_skip = int(frames_in_window / reference_min_samples)
+
+    print(f"- Min detection window: {min_detection_window_seconds:.2f}s")
+
+    # Ensure we don't return 0 (which would mean process every frame)
+    return max(1, max_skip - 1)
 
 
 def process_video_parallel(video_path, num_segments=4):
@@ -590,7 +656,9 @@ def process_video_parallel(video_path, num_segments=4):
 
     # Normalize timestamps if needed
     all_starts = normalize_timestamps(all_starts)
+    print(f"process_video_parallel: End before normalize: {all_ends}")
     all_ends = normalize_timestamps(all_ends)
+    print(f"process_video_parallel: End after normalize: {all_ends}")
     if len(all_ends) > 0 and len(all_starts) > 0:
         if all_ends[-1] > all_starts[0]:
             real_end = all_ends[-1]
@@ -600,6 +668,7 @@ def process_video_parallel(video_path, num_segments=4):
             all_ends.clear()
     else:
         all_ends.clear()
+    print(f"process_video_parallel: End after cleaning: {all_ends}")
 
     return all_starts, all_ends
 
@@ -653,8 +722,8 @@ def calculate_segment_boundaries(video_path, num_segments):
     return segments
 
 
-def subclip(video_path, start_time, end_time, output_file):
-    folder_path = "videos"
+def subclip(date_time, video_path, start_time, end_time, output_file):
+    folder_path = f"videos/{date_time}"
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
     subprocess.run([
