@@ -33,7 +33,7 @@ tflite_save_path = 'model/keypoint_classifier/keypoint_classifier.tflite'
 
 """# Set number of classes"""
 
-NUM_CLASSES = 5
+NUM_CLASSES = 6
 
 """# Dataset reading"""
 

@@ -5,6 +5,7 @@ import copy
 import argparse
 import itertools
 import multiprocessing
+import os
 import subprocess
 import sys
 from collections import Counter
@@ -32,6 +33,8 @@ from tkinter import filedialog, messagebox
 
 pose_duration = 0.7
 time_between_batches = 0.4
+start_sign = "OK"
+end_sign = "Peace"
 
 ################################# GUI #################################
 # Set appearance mode and default color theme for CustomTkinter
@@ -519,12 +522,12 @@ def process_video_segment(video_path, start_time, end_time):
                     hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
 
                     # Start points
-                    if keypoint_classifier_labels[hand_sign_id] == "Peace":
+                    if keypoint_classifier_labels[hand_sign_id] == start_sign:
                         timestamp = frame_count / frame_rate
                         print(f"Found start at {timestamp}")
                         timestamps_start.append(timestamp)
                     # End points
-                    if keypoint_classifier_labels[hand_sign_id] == "Open" and len(timestamps_start) != 0:
+                    if keypoint_classifier_labels[hand_sign_id] == end_sign and len(timestamps_start) != 0:
                         timestamp = frame_count / frame_rate
                         print(f"Found end at {timestamp}")
                         if len(timestamps_end) == 0:  # If list is empty
@@ -545,8 +548,6 @@ def process_video_segment(video_path, start_time, end_time):
 
 def process_video_parallel(video_path, num_segments=4):
     """
-    5.2m for a 720p 1h video (2.4GHz CPU)
-
     Process a video by dividing it into segments and processing them in parallel.
 
     Args:
@@ -653,6 +654,9 @@ def calculate_segment_boundaries(video_path, num_segments):
 
 
 def subclip(video_path, start_time, end_time, output_file):
+    folder_path = "videos"
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path)
     subprocess.run([
         "ffmpeg", "-y",
         "-ss", str(start_time),
@@ -661,7 +665,7 @@ def subclip(video_path, start_time, end_time, output_file):
         "-c:v", "copy",  # Stream copy video - no re-encoding
         "-c:a", "copy",  # Stream copy audio - no re-encoding
         "-avoid_negative_ts", "make_zero",  # Helps with frame accuracy
-        f"videos/{output_file}"
+        f"{folder_path}/{output_file}"
     ])
 
 
@@ -1202,7 +1206,6 @@ def draw_info(image, fps, mode, number):
 
 
 def monitor(cap, hands):
-    ############### Gud Code ################
     use_brect = True
     point_history_classifier = PointHistoryClassifier()
     keypoint_classifier = KeyPointClassifier()
@@ -1319,13 +1322,8 @@ def monitor(cap, hands):
 
     cap.release()
     cv.destroyAllWindows()
-    ############### Gud Code ################
 
 
 if __name__ == "__main__":
-    # Start with the input frame visible
-    # show_frame(input_frame)
-    # main()
-    # Run the application
     app = VideoSplitterApp(root)
     root.mainloop()
