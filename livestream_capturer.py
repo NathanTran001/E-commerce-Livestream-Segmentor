@@ -36,7 +36,7 @@ audio_queue = queue.Queue()
 recording = False
 camera_index = 0
 microphone_index = 0
-time_between_batches = 1  # seconds
+time_between_batches = 0.4  # seconds
 
 
 # === Audio Recording Thread ===
@@ -146,7 +146,7 @@ def process_video_single_thread():
                             if not timestamps_end:  # If list is empty
                                 timestamps_end.append(timestamp)
                             else:
-                                if abs(timestamps_end[0] - timestamp) < time_between_batches:  # If still the same batch
+                                if abs(timestamps_end[0] - timestamp) <= time_between_batches:  # If still the same batch
                                     timestamps_end.append(timestamp)
                                     if (len(timestamps_end) >= 2 and
                                             (timestamps_end[-1] - timestamps_end[0]) >= pose_duration):

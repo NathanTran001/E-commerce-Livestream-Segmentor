@@ -1,11 +1,10 @@
 import cv2
 import numpy as np
 import pyautogui
-import wave
 import threading
 import tkinter as tk
 from tkinter import ttk
-import moviepy.editor as mp
+import moviepy.video.io.VideoFileClip as mp
 import soundcard as sc
 import soundfile as sf
 
@@ -16,7 +15,7 @@ frame_rate = 20
 # Audio settings
 audio_rate = 48000
 audio_channels = 1
-audio_chunk = 2048 # increase the chunk size
+audio_chunk = 2048
 
 # Global variables
 recording = False

@@ -4,24 +4,21 @@ import csv
 import copy
 import argparse
 import itertools
-import multiprocessing
 import os
 import subprocess
-import sys
 from collections import Counter
 from collections import deque
 from datetime import datetime
 from functools import partial
 
-from moviepy.editor import VideoFileClip
-from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
 
-import cv2
 import cv2 as cv
 import numpy as np
 import mediapipe as mp
 import time
 import multiprocessing as mtp
+
+from moviepy import VideoFileClip
 
 from hand_gesture_recognizer.utils.cvfpscalc import CvFpsCalc
 from hand_gesture_recognizer.model.keypoint_classifier.keypoint_classifier import KeyPointClassifier
@@ -570,13 +567,12 @@ def initialize_dynamic_parameters(fps):
     reference_time_between_batches = time_between_batches
 
     # Scale parameters linearly with frame rate ratio
-    fps_ratio = reference_fps / fps
+    fps_ratio = fps / reference_fps
 
     # Apply scaling - slower videos need more time, faster videos need less
     pose_duration = reference_pose_duration * fps_ratio
     time_between_batches = reference_time_between_batches * fps_ratio
 
-    print(f"Dynamic parameters for {fps}fps video:")
     print(f"- Pose duration: {pose_duration:.2f}s")
     print(f"- Time between batches: {time_between_batches:.2f}s")
 
