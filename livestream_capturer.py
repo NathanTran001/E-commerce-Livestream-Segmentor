@@ -139,14 +139,14 @@ def process_video_single_thread():
                         timestamp = frame_count / frame_rate
 
                         if label == "Peace":
-                            print("START")
+                            print(f"START {timestamp}")
                             timestamps_start.append(timestamp)
                         elif label == "Open" and len(timestamps_start) != 0:
-                            print("END")
+                            print(f"END {timestamp}")
                             if not timestamps_end:  # If list is empty
                                 timestamps_end.append(timestamp)
                             else:
-                                if abs(timestamps_end[0] - timestamp) <= time_between_batches:  # If still the same batch
+                                if abs(timestamps_end[-1] - timestamp) <= time_between_batches:  # If still the same batch
                                     timestamps_end.append(timestamp)
                                     if (len(timestamps_end) >= 2 and
                                             (timestamps_end[-1] - timestamps_end[0]) >= pose_duration):

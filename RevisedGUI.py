@@ -1,6 +1,8 @@
 import tkinter as tk
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
+from tkinterdnd2 import *
+from pathlib import Path
 
 
 def main():
@@ -9,8 +11,8 @@ def main():
     ctk.set_appearance_mode("light")
     ctk.set_default_color_theme("blue")
 
-    # Main application window
-    root = ctk.CTk()
+    # Main application window with DnD support
+    root = TkinterDnD.Tk()
     root.title("Video to Multiple Short Videos")
     root.geometry("800x600")
     root.resizable(True, True)
@@ -31,10 +33,12 @@ class VideoSplitterApp:
         """Initialize the application.
 
         Args:
-            master: The root CTk window of the application.
+            master: The root Tk window of the application.
         """
         self.master = master
         self.selected_file = tk.StringVar()
+        self.start_gesture = tk.StringVar(value="Select Start Gesture")
+        self.end_gesture = tk.StringVar(value="Select End Gesture")
 
         # Set up frames for different screens
         self._setup_frames()
@@ -63,14 +67,15 @@ class VideoSplitterApp:
         self._setup_results_frame()
 
     def _setup_input_frame(self):
-        """Set up the input frame with upload functionality."""
+        """Set up the input frame with upload functionality and gesture selection."""
         # Configure frame layout
         self.input_frame.grid_columnconfigure(0, weight=1)
         self.input_frame.grid_rowconfigure(0, weight=0)  # Header
         self.input_frame.grid_rowconfigure(1, weight=1)  # Drag area
         self.input_frame.grid_rowconfigure(2, weight=0)  # File label
-        self.input_frame.grid_rowconfigure(3, weight=0)  # Execute button
-        self.input_frame.grid_rowconfigure(4, weight=0)  # Footer
+        self.input_frame.grid_rowconfigure(3, weight=0)  # Gesture selection
+        self.input_frame.grid_rowconfigure(4, weight=0)  # Execute button
+        self.input_frame.grid_rowconfigure(5, weight=0)  # Footer
 
         # Header frame (centered)
         header_frame = ctk.CTkFrame(self.input_frame, fg_color="white", corner_radius=8)
@@ -89,18 +94,18 @@ class VideoSplitterApp:
         upload_button.grid(row=0, column=0, padx=20, pady=10)
 
         # Drag-and-drop area
-        drag_area = ctk.CTkFrame(self.input_frame, fg_color="white", corner_radius=8)
-        drag_area.grid(row=1, column=0, padx=20, pady=20, sticky="nsew")
+        self.drag_area = ctk.CTkFrame(self.input_frame, fg_color="white", corner_radius=8)
+        self.drag_area.grid(row=1, column=0, padx=20, pady=20, sticky="nsew")
 
         # Configure drag area for centering
-        drag_area.grid_rowconfigure(0, weight=1)
-        drag_area.grid_rowconfigure(1, weight=0)
-        drag_area.grid_rowconfigure(2, weight=1)
-        drag_area.grid_columnconfigure(0, weight=1)
+        self.drag_area.grid_rowconfigure(0, weight=1)
+        self.drag_area.grid_rowconfigure(1, weight=0)
+        self.drag_area.grid_rowconfigure(2, weight=1)
+        self.drag_area.grid_columnconfigure(0, weight=1)
 
         # Upload icon (centered)
         upload_icon = ctk.CTkLabel(
-            drag_area,
+            self.drag_area,
             text="⬆",
             font=ctk.CTkFont(size=40),
             text_color="#A9A9A9"
@@ -109,19 +114,23 @@ class VideoSplitterApp:
 
         # Text labels (centered)
         drag_label = ctk.CTkLabel(
-            drag_area,
+            self.drag_area,
             text="Select video to upload",
             font=ctk.CTkFont(size=16)
         )
         drag_label.grid(row=1, column=0, padx=20, pady=(0, 5))
 
         drag_sublabel = ctk.CTkLabel(
-            drag_area,
+            self.drag_area,
             text="Or drag and drop video files",
             font=ctk.CTkFont(size=14),
             text_color="gray"
         )
         drag_sublabel.grid(row=2, column=0, padx=20, pady=(0, 20))
+
+        # Enable drag-and-drop using tkinterdnd2
+        self.drag_area.drop_target_register(DND_FILES)
+        self.drag_area.dnd_bind('<<Drop>>', self.handle_drop)
 
         # Selected file label
         file_label = ctk.CTkLabel(
@@ -131,6 +140,47 @@ class VideoSplitterApp:
         )
         file_label.grid(row=2, column=0, padx=20, pady=5)
 
+        # Gesture selection frame
+        gesture_frame = ctk.CTkFrame(self.input_frame, fg_color="#E8ECEF", corner_radius=0)
+        gesture_frame.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
+        gesture_frame.grid_columnconfigure(0, weight=1)
+        gesture_frame.grid_columnconfigure(1, weight=1)
+
+        # Gesture options
+        gesture_options = ["Peace ✌️", "OK 👌", "Open 👐", "Close ✊"]
+
+        # Start gesture dropdown
+        start_gesture_label = ctk.CTkLabel(
+            gesture_frame,
+            text="Start Gesture:",
+            font=ctk.CTkFont(size=14)
+        )
+        start_gesture_label.grid(row=0, column=0, padx=(0, 10), pady=5, sticky="e")
+
+        start_gesture_menu = ctk.CTkOptionMenu(
+            gesture_frame,
+            variable=self.start_gesture,
+            values=gesture_options,
+            width=150
+        )
+        start_gesture_menu.grid(row=0, column=1, padx=(0, 20), pady=5, sticky="w")
+
+        # End gesture dropdown
+        end_gesture_label = ctk.CTkLabel(
+            gesture_frame,
+            text="End Gesture:",
+            font=ctk.CTkFont(size=14)
+        )
+        end_gesture_label.grid(row=1, column=0, padx=(0, 10), pady=5, sticky="e")
+
+        end_gesture_menu = ctk.CTkOptionMenu(
+            gesture_frame,
+            variable=self.end_gesture,
+            values=gesture_options,
+            width=150
+        )
+        end_gesture_menu.grid(row=1, column=1, padx=(0, 20), pady=5, sticky="w")
+
         # Execute button (centered)
         execute_button = ctk.CTkButton(
             self.input_frame,
@@ -139,11 +189,11 @@ class VideoSplitterApp:
             width=150,
             font=ctk.CTkFont(weight="bold")
         )
-        execute_button.grid(row=3, column=0, padx=20, pady=10)
+        execute_button.grid(row=4, column=0, padx=20, pady=10)
 
         # Footer/info section (centered)
         footer_frame = ctk.CTkFrame(self.input_frame, fg_color="#E8ECEF", corner_radius=0)
-        footer_frame.grid(row=4, column=0, padx=20, pady=(10, 20), sticky="ew")
+        footer_frame.grid(row=5, column=0, padx=20, pady=(10, 20), sticky="ew")
 
         # Configure footer for centering
         footer_frame.grid_columnconfigure(0, weight=1)
@@ -243,13 +293,36 @@ class VideoSplitterApp:
             filetypes=[("Video files", "*.mp4 *.avi *.mkv")]
         )
         if file_path:
-            filename = file_path.split("/")[-1]
-            self.selected_file.set(f"Selected: {filename}")
+            self._set_selected_file(file_path)
+
+    def handle_drop(self, event):
+        """Handle drag-and-drop event for video files."""
+        try:
+            # Get the dropped file path
+            file_path = event.data
+            # Clean up the file path (remove curly braces if multiple files are dropped)
+            if file_path.startswith('{') and file_path.endswith('}'):
+                file_path = file_path[1:-1].split()[0]  # Take the first file if multiple
+            # Check if the file is a valid video file
+            if Path(file_path).suffix.lower() in ['.mp4', '.avi', '.mkv']:
+                self._set_selected_file(file_path)
+            else:
+                messagebox.showwarning("Invalid File", "Please drop a valid video file (.mp4, .avi, .mkv)!")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to process the dropped file: {str(e)}")
+
+    def _set_selected_file(self, file_path):
+        """Set the selected file and update the UI."""
+        filename = Path(file_path).name
+        self.selected_file.set(f"Selected: {filename}")
 
     def execute_split(self):
         """Process the video and show results."""
         if not self.selected_file.get():
             messagebox.showwarning("No File", "Please select a video first!")
+            return
+        if self.start_gesture.get() == "Select Start Gesture" or self.end_gesture.get() == "Select End Gesture":
+            messagebox.showwarning("No Gesture", "Please select both start and end gestures!")
             return
 
         self.show_frame(self.loading_frame)
@@ -347,6 +420,7 @@ class VideoSplitterApp:
                 height=25
             )
             more_btn.grid(row=0, column=2, padx=2, pady=5)
+
 
 if __name__ == "__main__":
     main()

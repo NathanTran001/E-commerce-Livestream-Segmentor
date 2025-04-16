@@ -3,6 +3,7 @@
 import csv
 import copy
 import argparse
+import ctypes
 import itertools
 import os
 import subprocess
@@ -11,7 +12,7 @@ from collections import Counter
 from collections import deque
 from datetime import datetime
 from functools import partial
-
+from pathlib import Path
 
 import cv2 as cv
 import numpy as np
@@ -29,11 +30,17 @@ import threading
 import tkinter as tk
 import customtkinter as ctk
 from tkinter import filedialog, messagebox, simpledialog
+from tkinterdnd2 import *
 
 pose_duration = 0.8
 time_between_batches = 0.4
-start_sign = "OK"
-end_sign = "Peace"
+start_sign = "Select Start Gesture"
+end_sign = "Select End Gesture"
+
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)  # For Windows
+except:
+    pass  # On non-Windows platforms
 
 ################################# GUI #################################
 # Set appearance mode and default color theme for CustomTkinter
@@ -41,9 +48,9 @@ ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
 
 # Main application window
-root = ctk.CTk()
-root.title("Video to Multiple Short Videos")
-root.geometry("800x600")
+root = TkinterDnD.Tk()
+root.title("ELS - E-commerce Livestream Segmentor")
+root.geometry("800x700")
 root.resizable(True, True)
 
 
@@ -62,14 +69,27 @@ class VideoSplitterApp:
         """
         self.master = master
         self.selected_file = tk.StringVar()
-        # Get current date and time
         self.date_time = tk.StringVar()
-
+        self.start = tk.StringVar(value="Select Start Gesture")
+        self.end = tk.StringVar(value="Select End Gesture")
         # Set up frames for different screens
         self._setup_frames()
 
         # Start with the input frame visible
         self.show_frame(self.input_frame)
+        # Add trace to update globals when StringVars change
+        self.start.trace_add("write", self._update_global_start)
+        self.end.trace_add("write", self._update_global_end)
+
+    def _update_global_start(self, *args):
+        global start_sign
+        start_sign = self.start.get()
+        print(f"Global start_sign updated to: {start_sign}")
+
+    def _update_global_end(self, *args):
+        global end_sign
+        end_sign = self.end.get()
+        print(f"Global end_sign updated to: {end_sign}")
 
     def _setup_frames(self):
         """Set up the main frames for different application states."""
@@ -92,14 +112,15 @@ class VideoSplitterApp:
         self._setup_results_frame()
 
     def _setup_input_frame(self):
-        """Set up the input frame with upload functionality."""
+        """Set up the input frame with upload functionality and gesture selection."""
         # Configure frame layout
         self.input_frame.grid_columnconfigure(0, weight=1)
         self.input_frame.grid_rowconfigure(0, weight=0)  # Header
         self.input_frame.grid_rowconfigure(1, weight=1)  # Drag area
         self.input_frame.grid_rowconfigure(2, weight=0)  # File label
-        self.input_frame.grid_rowconfigure(3, weight=0)  # Execute button
-        self.input_frame.grid_rowconfigure(4, weight=0)  # Footer
+        self.input_frame.grid_rowconfigure(3, weight=0)  # Gesture selection
+        self.input_frame.grid_rowconfigure(4, weight=0)  # Execute button
+        self.input_frame.grid_rowconfigure(5, weight=0)  # Footer
 
         # Header frame (centered)
         header_frame = ctk.CTkFrame(self.input_frame, fg_color="white", corner_radius=8)
@@ -118,18 +139,18 @@ class VideoSplitterApp:
         upload_button.grid(row=0, column=0, padx=20, pady=10)
 
         # Drag-and-drop area
-        drag_area = ctk.CTkFrame(self.input_frame, fg_color="white", corner_radius=8)
-        drag_area.grid(row=1, column=0, padx=20, pady=20, sticky="nsew")
+        self.drag_area = ctk.CTkFrame(self.input_frame, fg_color="white", corner_radius=8)
+        self.drag_area.grid(row=1, column=0, padx=20, pady=20, sticky="nsew")
 
         # Configure drag area for centering
-        drag_area.grid_rowconfigure(0, weight=1)
-        drag_area.grid_rowconfigure(1, weight=0)
-        drag_area.grid_rowconfigure(2, weight=1)
-        drag_area.grid_columnconfigure(0, weight=1)
+        self.drag_area.grid_rowconfigure(0, weight=1)
+        self.drag_area.grid_rowconfigure(1, weight=0)
+        self.drag_area.grid_rowconfigure(2, weight=1)
+        self.drag_area.grid_columnconfigure(0, weight=1)
 
         # Upload icon (centered)
         upload_icon = ctk.CTkLabel(
-            drag_area,
+            self.drag_area,
             text="⬆",
             font=ctk.CTkFont(size=40),
             text_color="#A9A9A9"
@@ -138,19 +159,23 @@ class VideoSplitterApp:
 
         # Text labels (centered)
         drag_label = ctk.CTkLabel(
-            drag_area,
+            self.drag_area,
             text="Select video to upload",
             font=ctk.CTkFont(size=16)
         )
         drag_label.grid(row=1, column=0, padx=20, pady=(0, 5))
 
         drag_sublabel = ctk.CTkLabel(
-            drag_area,
+            self.drag_area,
             text="Or drag and drop video files",
             font=ctk.CTkFont(size=14),
             text_color="gray"
         )
         drag_sublabel.grid(row=2, column=0, padx=20, pady=(0, 20))
+
+        # Enable drag-and-drop using tkinterdnd2
+        self.drag_area.drop_target_register(DND_FILES)
+        self.drag_area.dnd_bind('<<Drop>>', self.handle_drop)
 
         # Selected file label
         file_label = ctk.CTkLabel(
@@ -160,6 +185,47 @@ class VideoSplitterApp:
         )
         file_label.grid(row=2, column=0, padx=20, pady=5)
 
+        # Gesture selection frame
+        gesture_frame = ctk.CTkFrame(self.input_frame, fg_color="#E8ECEF", corner_radius=0)
+        gesture_frame.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
+        gesture_frame.grid_columnconfigure(0, weight=1)
+        gesture_frame.grid_columnconfigure(1, weight=1)
+
+        # Gesture options
+        gesture_options = ["Peace", "OK", "Open", "Close"]
+
+        # Start gesture dropdown
+        start_gesture_label = ctk.CTkLabel(
+            gesture_frame,
+            text="Start Gesture:",
+            font=ctk.CTkFont(size=14)
+        )
+        start_gesture_label.grid(row=0, column=0, padx=(0, 10), pady=5, sticky="e")
+
+        start_gesture_menu = ctk.CTkOptionMenu(
+            gesture_frame,
+            variable=self.start,
+            values=gesture_options,
+            width=150
+        )
+        start_gesture_menu.grid(row=0, column=1, padx=(0, 20), pady=5, sticky="w")
+
+        # End gesture dropdown
+        end_gesture_label = ctk.CTkLabel(
+            gesture_frame,
+            text="End Gesture:",
+            font=ctk.CTkFont(size=14)
+        )
+        end_gesture_label.grid(row=1, column=0, padx=(0, 10), pady=5, sticky="e")
+
+        end_gesture_menu = ctk.CTkOptionMenu(
+            gesture_frame,
+            variable=self.end,
+            values=gesture_options,
+            width=150
+        )
+        end_gesture_menu.grid(row=1, column=1, padx=(0, 20), pady=5, sticky="w")
+
         # Execute button (centered)
         execute_button = ctk.CTkButton(
             self.input_frame,
@@ -168,11 +234,11 @@ class VideoSplitterApp:
             width=150,
             font=ctk.CTkFont(weight="bold")
         )
-        execute_button.grid(row=3, column=0, padx=20, pady=10)
+        execute_button.grid(row=4, column=0, padx=20, pady=10)
 
         # Footer/info section (centered)
         footer_frame = ctk.CTkFrame(self.input_frame, fg_color="#E8ECEF", corner_radius=0)
-        footer_frame.grid(row=4, column=0, padx=20, pady=(10, 20), sticky="ew")
+        footer_frame.grid(row=5, column=0, padx=20, pady=(10, 20), sticky="ew")
 
         # Configure footer for centering
         footer_frame.grid_columnconfigure(0, weight=1)
@@ -274,15 +340,33 @@ class VideoSplitterApp:
         if file_path:
             self.selected_file.set(file_path)
 
+    def handle_drop(self, event):
+        """Handle drag-and-drop event for video files."""
+        try:
+            # Get the dropped file path
+            file_path = event.data
+            # Clean up the file path (remove curly braces if multiple files are dropped)
+            if file_path.startswith('{') and file_path.endswith('}'):
+                file_path = file_path[1:-1].split()[0]  # Take the first file if multiple
+            # Check if the file is a valid video file
+            if Path(file_path).suffix.lower() in ['.mp4', '.avi', '.mkv']:
+                self.selected_file.set(file_path)
+            else:
+                messagebox.showwarning("Invalid File", "Please drop a valid video file (.mp4, .avi, .mkv)!")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to process the dropped file: {str(e)}")
+
     def execute_split(self):
         """Process the video and show results."""
         if not self.selected_file.get():
             messagebox.showwarning("No File", "Please select a video first!")
             return
+        if start_sign == "Select Start Gesture":
+            messagebox.showwarning("No Gesture", "Please select start gesture!")
+            return
 
         self.show_frame(self.loading_frame)
         run_main_in_thread()
-
 
     def show_results(self):
         """Display the results screen with processed videos."""
@@ -449,7 +533,7 @@ class VideoSplitterApp:
         popup = tk.Menu(self.master, tearoff=0)
         popup.add_command(label="Rename", command=lambda: self.rename_video(video_path))
         popup.add_command(label="Delete", command=lambda: self.delete_video(video_path))
-        popup.add_command(label="Copy path", command=lambda: self.copy_path(video_path))
+        popup.add_command(label="Copy path", command=lambda: self.copy_path(self.selected_file.get()))
 
         # Display the popup menu
         try:
@@ -458,13 +542,20 @@ class VideoSplitterApp:
             popup.grab_release()
 
     def rename_video(self, video_path):
-        """Rename the video file"""
+        """Rename the video file while preserving its extension"""
         old_name = os.path.basename(video_path)
-        new_name = simpledialog.askstring("Rename", "Enter new name:", initialvalue=old_name)
+        file_name, file_ext = os.path.splitext(old_name)
 
-        if new_name and new_name != old_name:
+        # Ask user for the new name (without extension)
+        new_name_without_ext = simpledialog.askstring("Rename", "Enter new name:",
+                                                      initialvalue=file_name)
+
+        if new_name_without_ext and new_name_without_ext != file_name:
             try:
-                new_path = os.path.join(os.path.dirname(video_path), new_name)
+                # Create the new full name by combining the new name with the original extension
+                new_full_name = new_name_without_ext + file_ext
+                new_path = os.path.join(os.path.dirname(video_path), new_full_name)
+
                 os.rename(video_path, new_path)
                 self.populate_videos()  # Refresh the view
             except Exception as e:
@@ -486,11 +577,14 @@ class VideoSplitterApp:
         self.master.clipboard_append(video_path)
         messagebox.showinfo("Info", "Path copied to clipboard")
 
+
 # Function to switch between frames (screens)
 def run_main_in_thread():
     thread = threading.Thread(target=main)
     thread.daemon = True  # Ensures thread exits when main program ends
     thread.start()
+
+
 ################################# GUI #################################
 
 def get_args():
@@ -532,7 +626,7 @@ def main():
     num_segments = max(2, num_cores - 1)
 
     # Process video in parallel
-    timestamps_start, timestamps_end = process_video_parallel(video_path, num_segments)
+    timestamps_start, timestamps_end = process_video_parallel(video_path, num_segments, start_sign, end_sign)
 
     # Process the results as before
     print("starts after normalize: ")
@@ -551,10 +645,12 @@ def main():
     datetime_string = app.date_time.get()
 
     # Create clips from the timestamps
+    subclip_tasks = []
     segment_name = 1
     for idx, point_to_start in enumerate(timestamps_start):
         if len(timestamps_start) >= 2 and len(timestamps_start) > idx + 1:
-            subclip(datetime_string, video_path, point_to_start, timestamps_start[idx + 1], f"{segment_name}.mp4")
+            subclip_tasks.append(
+                (datetime_string, video_path, point_to_start, timestamps_start[idx + 1], f"{segment_name}.mp4"))
             segment_name = segment_name + 1
 
     print(f"start point of last clip: {timestamps_start[-1]}")
@@ -563,9 +659,16 @@ def main():
     if len(timestamps_end) > 0:
         print(f"end point of last clip: {timestamps_end[0]}")
         end_time_last = timestamps_end[0]
-        subclip(datetime_string, video_path, start_time_last, end_time_last, f"{segment_name}.mp4")
+        subclip_tasks.append(
+            (datetime_string, video_path, start_time_last, end_time_last, f"{segment_name}.mp4"))
     else:
-        subclip(datetime_string, video_path, start_time_last, VideoFileClip(video_path).duration, f"{segment_name}.mp4")
+        subclip_tasks.append(
+            (datetime_string, video_path, start_time_last, VideoFileClip(video_path).duration, f"{segment_name}.mp4"))
+
+    with mtp.Pool() as pool:
+        pool.map(subclip, subclip_tasks)
+
+    print(f"All {len(subclip_tasks)} clips processed in parallel")
 
     app.show_results()
     # APP ENDS #################################################
@@ -575,7 +678,7 @@ def main():
     print(f"Execution time: {execution_time:.2f} seconds")
 
 
-def process_video_segment(video_path, start_time, end_time):
+def process_video_segment(video_path, start_time, end_time, start_sign, end_sign):
     """
     Process a specific segment of the video.
 
@@ -632,7 +735,7 @@ def process_video_segment(video_path, start_time, end_time):
         if frame_count % frame_skip == 0:
 
             timestamp = frame_count / frame_rate
-            print(f"{timestamp}")
+            # print(f"{timestamp}")
 
             image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
             results = hands.process(image)
@@ -657,7 +760,7 @@ def process_video_segment(video_path, start_time, end_time):
                                 if (len(timestamps_end) >= 2 and
                                         abs(timestamps_end[-1] - timestamps_end[0]) >= pose_duration):
                                     end_detected = True
-                            else:   # If a different batch
+                            else:  # If a different batch
                                 timestamps_end.clear()
                                 timestamps_end.append(timestamp)
         frame_count += 1
@@ -721,7 +824,7 @@ def calculate_frames_to_skip(fps):
     return max(1, max_skip - 1)
 
 
-def process_video_parallel(video_path, num_segments=4):
+def process_video_parallel(video_path, num_segments, start_sign, end_sign):
     """
     Process a video by dividing it into segments and processing them in parallel.
 
@@ -742,7 +845,7 @@ def process_video_parallel(video_path, num_segments=4):
     pool = mtp.Pool(processes=min(mtp.cpu_count(), num_segments))
 
     # Create a partial function with the video_path already set
-    process_segment = partial(process_segment_wrapper, video_path=video_path)
+    process_segment = partial(process_segment_wrapper, video_path=video_path, start_sign=start_sign, end_sign=end_sign)
 
     # Process all segments in parallel
     results = pool.starmap(process_segment, segments)
@@ -782,12 +885,12 @@ def process_video_parallel(video_path, num_segments=4):
     return all_starts, all_ends
 
 
-def process_segment_wrapper(start_time, end_time, video_path):
+def process_segment_wrapper(start_time, end_time, video_path, start_sign, end_sign):
     """
     Wrapper function to be used with pool.starmap().
     """
     print(f"Processing segment {start_time:.2f}s - {end_time:.2f}s")
-    return process_video_segment(video_path, start_time, end_time)
+    return process_video_segment(video_path, start_time, end_time, start_sign, end_sign)
 
 
 def calculate_segment_boundaries(video_path, num_segments):
@@ -831,7 +934,8 @@ def calculate_segment_boundaries(video_path, num_segments):
     return segments
 
 
-def subclip(date_time, video_path, start_time, end_time, output_file):
+def subclip(args):
+    date_time, video_path, start_time, end_time, output_file = args
     folder_path = f"videos/{date_time}"
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
@@ -850,7 +954,7 @@ def subclip(date_time, video_path, start_time, end_time, output_file):
 def normalize_timestamps(timestamps):
     temp_timestamps = []
     normalized_timestamps = []
-    for idx, timestamp in enumerate(timestamps):    # 2.1 2.2 2.3   5.6 5.7   8.1 8.2 8.3 8.4 8.5
+    for idx, timestamp in enumerate(timestamps):  # 2.1 2.2 2.3   5.6 5.7   8.1 8.2 8.3 8.4 8.5
         # When haven't reached the end
         if len(timestamps) > idx + 1 and len(timestamps) >= 2:
             timestamps.sort()
