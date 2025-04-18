@@ -141,7 +141,7 @@ def process_video_single_thread():
                         if label == "Peace":
                             print(f"START {timestamp}")
                             timestamps_start.append(timestamp)
-                        elif label == "Open" and len(timestamps_start) != 0:
+                        elif label == "OK" and len(timestamps_start) != 0:
                             print(f"END {timestamp}")
                             if not timestamps_end:  # If list is empty
                                 timestamps_end.append(timestamp)
