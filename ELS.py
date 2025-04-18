@@ -113,7 +113,7 @@ def calculate_frames_to_skip(fps):
     return max(1, max_skip - 1)
 
 
-def process_video_parallel(video_path, num_segments, start_sign, end_sign):
+def process_video_parallel(app, video_path, num_segments, start_sign, end_sign):
     """
     Process a video by dividing it into segments and processing them in parallel.
 
@@ -133,8 +133,27 @@ def process_video_parallel(video_path, num_segments, start_sign, end_sign):
     # Create a pool of worker processes
     pool = mtp.Pool(processes=min(mtp.cpu_count(), num_segments))
 
-    # Create a partial function with the video_path already set
-    process_segment = partial(process_segment_with_sign, video_path=video_path, start_sign=start_sign, end_sign=end_sign)
+    process_segment = partial(process_segment_with_hand, video_path=video_path, start_sign=start_sign, end_sign=end_sign)
+    if app.mode.get() == "custom_sign":
+        detector = SignDetector()
+
+        # Try to load existing model first
+        if not detector.load_model():
+            print("No existing model found or error loading model")
+
+            # Select and process a new reference image
+            if detector.select_reference_image():
+                print(f"Selected reference image: {detector.reference_image_path}")
+
+                if detector.process_reference_image():
+                    detector.save_model()
+                else:
+                    print("Failed to process reference image")
+                    return
+            else:
+                print("No reference image selected, exiting")
+                return
+        process_segment = partial(process_segment_with_sign, video_path=video_path, start_sign=start_sign, end_sign=end_sign)
 
     # Process all segments in parallel
     results = pool.starmap(process_segment, segments)
@@ -189,27 +208,9 @@ def main(app):
     print(f"num_cores: {num_cores}")
     # Use slightly fewer cores than available to avoid overloading the system
     num_segments = max(2, num_cores - 1)
-    detector = SignDetector()
-
-    # Try to load existing model first
-    if not detector.load_model():
-        print("No existing model found or error loading model")
-
-        # Select and process a new reference image
-        if detector.select_reference_image():
-            print(f"Selected reference image: {detector.reference_image_path}")
-
-            if detector.process_reference_image():
-                detector.save_model()
-            else:
-                print("Failed to process reference image")
-                return
-        else:
-            print("No reference image selected, exiting")
-            return
 
     # Process video in parallel
-    timestamps_start, timestamps_end = process_video_parallel(video_path, num_segments, start_sign, end_sign)
+    timestamps_start, timestamps_end = process_video_parallel(app, video_path, num_segments, start_sign, end_sign)
 
     # Process the results as before
     print("starts after normalize: ")

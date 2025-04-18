@@ -9,11 +9,13 @@ from tkinterdnd2 import *
 start_sign = "Select Start Gesture"
 end_sign = "Select End Gesture"
 
+
 class VideoSplitterApp:
     """Application for splitting videos into multiple shorter clips.
 
     This class provides a CustomTkinter-based GUI for uploading videos
-    and splitting them into shorter segments.
+    and splitting them into shorter segments using either hand gestures
+    or custom sign images.
     """
 
     def __init__(self, master):
@@ -27,12 +29,16 @@ class VideoSplitterApp:
         self.date_time = tk.StringVar()
         self.start = tk.StringVar(value="Select Start Gesture")
         self.end = tk.StringVar(value="Select End Gesture")
+        self.mode = tk.StringVar(value="hand_sign")  # Default mode
+        self.custom_start_image = None  # Path to custom start sign image
+        self.custom_end_image = None  # Path to custom end sign image
+
         # Set up frames for different screens
         self._setup_frames()
-        self.mode = tk.IntVar
 
-        # Start with the input frame visible
-        self.show_frame(self.input_frame)
+        # Start with the home frame visible
+        self.show_frame(self.home_frame)
+
         # Add trace to update globals when StringVars change
         self.start.trace_add("write", self._update_global_start)
         self.end.trace_add("write", self._update_global_end)
@@ -49,13 +55,16 @@ class VideoSplitterApp:
 
     def _setup_frames(self):
         """Set up the main frames for different application states."""
-        # Create three frames for different states with the same grid position
+        # Create frames for different states with the same grid position
+        self.home_frame = ctk.CTkFrame(self.master, fg_color="#E8ECEF", corner_radius=0)
         self.input_frame = ctk.CTkFrame(self.master, fg_color="#E8ECEF", corner_radius=0)
+        self.custom_input_frame = ctk.CTkFrame(self.master, fg_color="#E8ECEF", corner_radius=0)
         self.loading_frame = ctk.CTkFrame(self.master, fg_color="#E8ECEF", corner_radius=0)
         self.results_frame = ctk.CTkFrame(self.master, fg_color="#E8ECEF", corner_radius=0)
 
         # Stack frames on top of each other
-        for frame in (self.input_frame, self.loading_frame, self.results_frame):
+        for frame in (self.home_frame, self.input_frame, self.custom_input_frame,
+                      self.loading_frame, self.results_frame):
             frame.grid(row=0, column=0, sticky="nsew")
 
         # Configure grid to allow expansion
@@ -63,9 +72,85 @@ class VideoSplitterApp:
         self.master.grid_columnconfigure(0, weight=1)
 
         # Set up each frame's content
+        self._setup_home_frame()
         self._setup_input_frame()
+        self._setup_custom_input_frame()
         self._setup_loading_frame()
         self._setup_results_frame()
+
+    def _setup_home_frame(self):
+        """Set up the home frame with mode selection buttons."""
+        # Configure frame layout
+        self.home_frame.grid_columnconfigure(0, weight=1)
+        self.home_frame.grid_rowconfigure(0, weight=1)  # Top space
+        self.home_frame.grid_rowconfigure(1, weight=0)  # Title
+        self.home_frame.grid_rowconfigure(2, weight=0)  # Description
+        self.home_frame.grid_rowconfigure(3, weight=0)  # Hand sign button
+        self.home_frame.grid_rowconfigure(4, weight=0)  # Custom sign button
+        self.home_frame.grid_rowconfigure(5, weight=1)  # Bottom space
+
+        # Title
+        title_label = ctk.CTkLabel(
+            self.home_frame,
+            text="Video Splitter App",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color="#1A73E8"
+        )
+        title_label.grid(row=1, column=0, padx=20, pady=(20, 5))
+
+        # Description
+        desc_label = ctk.CTkLabel(
+            self.home_frame,
+            text="Choose a mode to split your videos",
+            font=ctk.CTkFont(size=16),
+            text_color="#606770"
+        )
+        desc_label.grid(row=2, column=0, padx=20, pady=(0, 20))
+
+        # Mode buttons container
+        buttons_frame = ctk.CTkFrame(self.home_frame, fg_color="#E8ECEF", corner_radius=0)
+        buttons_frame.grid(row=3, column=0, rowspan=2, padx=20, pady=20)
+
+        # Hand Sign Mode Button
+        hand_sign_btn = ctk.CTkButton(
+            buttons_frame,
+            text="Hand Sign Mode",
+            command=lambda: self._enter_hand_sign_mode(),
+            width=200,
+            height=50,
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        hand_sign_btn.grid(row=0, column=0, padx=20, pady=10)
+
+        # Custom Sign Mode Button
+        custom_sign_btn = ctk.CTkButton(
+            buttons_frame,
+            text="Custom Sign Mode",
+            command=lambda: self._enter_custom_sign_mode(),
+            width=200,
+            height=50,
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        custom_sign_btn.grid(row=1, column=0, padx=20, pady=10)
+
+        # Version info at bottom
+        version_label = ctk.CTkLabel(
+            self.home_frame,
+            text="Video to Multiple Short Videos App v1.1",
+            font=ctk.CTkFont(size=12),
+            text_color="gray"
+        )
+        version_label.grid(row=5, column=0, padx=20, pady=(0, 10), sticky="s")
+
+    def _enter_custom_sign_mode(self):
+        self.mode.set("custom_sign")
+        print(self.mode.get())
+        self.show_frame(self.custom_input_frame)
+
+    def _enter_hand_sign_mode(self):
+        self.mode.set("hand_sign")
+        print(self.mode.get())
+        self.show_frame(self.input_frame)
 
     def _setup_input_frame(self):
         """Set up the input frame with upload functionality and gesture selection."""
@@ -78,9 +163,23 @@ class VideoSplitterApp:
         self.input_frame.grid_rowconfigure(4, weight=0)  # Execute button
         self.input_frame.grid_rowconfigure(5, weight=0)  # Footer
 
+        # Back button (top left)
+        back_button = ctk.CTkButton(
+            self.input_frame,
+            text="< Back",
+            command=lambda: self.show_frame(self.home_frame),
+            width=80,
+            height=30,
+            fg_color="#E8ECEF",
+            text_color="#1A73E8",
+            hover_color="#D0D7DE",
+            border_width=0
+        )
+        back_button.grid(row=0, column=0, padx=(20, 0), pady=(20, 0), sticky="nw")
+
         # Header frame (centered)
         header_frame = ctk.CTkFrame(self.input_frame, fg_color="white", corner_radius=8)
-        header_frame.grid(row=0, column=0, padx=20, pady=(20, 0), sticky="ew")
+        header_frame.grid(row=0, column=0, padx=20, pady=(60, 0), sticky="ew")
 
         # Configure header for centering
         header_frame.grid_columnconfigure(0, weight=1)
@@ -147,6 +246,15 @@ class VideoSplitterApp:
         gesture_frame.grid_columnconfigure(0, weight=1)
         gesture_frame.grid_columnconfigure(1, weight=1)
 
+        # Mode indicator
+        mode_label = ctk.CTkLabel(
+            gesture_frame,
+            text="Hand Sign Mode",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color="#1A73E8"
+        )
+        mode_label.grid(row=0, column=0, columnspan=2, padx=20, pady=(5, 15))
+
         # Gesture options
         gesture_options = ["Peace", "OK", "Open", "Close"]
 
@@ -156,7 +264,7 @@ class VideoSplitterApp:
             text="Start Gesture:",
             font=ctk.CTkFont(size=14)
         )
-        start_gesture_label.grid(row=0, column=0, padx=(0, 10), pady=5, sticky="e")
+        start_gesture_label.grid(row=1, column=0, padx=(0, 10), pady=5, sticky="e")
 
         start_gesture_menu = ctk.CTkOptionMenu(
             gesture_frame,
@@ -164,7 +272,7 @@ class VideoSplitterApp:
             values=gesture_options,
             width=150
         )
-        start_gesture_menu.grid(row=0, column=1, padx=(0, 20), pady=5, sticky="w")
+        start_gesture_menu.grid(row=1, column=1, padx=(0, 20), pady=5, sticky="w")
 
         # End gesture dropdown
         end_gesture_label = ctk.CTkLabel(
@@ -172,7 +280,7 @@ class VideoSplitterApp:
             text="End Gesture:",
             font=ctk.CTkFont(size=14)
         )
-        end_gesture_label.grid(row=1, column=0, padx=(0, 10), pady=5, sticky="e")
+        end_gesture_label.grid(row=2, column=0, padx=(0, 10), pady=5, sticky="e")
 
         end_gesture_menu = ctk.CTkOptionMenu(
             gesture_frame,
@@ -180,7 +288,7 @@ class VideoSplitterApp:
             values=gesture_options,
             width=150
         )
-        end_gesture_menu.grid(row=1, column=1, padx=(0, 20), pady=5, sticky="w")
+        end_gesture_menu.grid(row=2, column=1, padx=(0, 20), pady=5, sticky="w")
 
         # Execute button (centered)
         execute_button = ctk.CTkButton(
@@ -202,7 +310,7 @@ class VideoSplitterApp:
         # Version info
         info_label = ctk.CTkLabel(
             footer_frame,
-            text="Video to Multiple Short Videos App v1.0",
+            text="Video to Multiple Short Videos App v1.1",
             font=ctk.CTkFont(size=12),
             text_color="gray"
         )
@@ -212,6 +320,224 @@ class VideoSplitterApp:
         desc_label = ctk.CTkLabel(
             footer_frame,
             text="Easily split your videos into shorter clips!",
+            font=ctk.CTkFont(size=12),
+            text_color="gray"
+        )
+        desc_label.grid(row=1, column=0, padx=20, pady=(0, 5))
+
+    def _setup_custom_input_frame(self):
+        """Set up the custom sign input frame with image upload functionality."""
+        # Configure frame layout
+        self.custom_input_frame.grid_columnconfigure(0, weight=1)
+        self.custom_input_frame.grid_rowconfigure(0, weight=0)  # Header with back button
+        self.custom_input_frame.grid_rowconfigure(1, weight=1)  # Drag area
+        self.custom_input_frame.grid_rowconfigure(2, weight=0)  # File label
+        self.custom_input_frame.grid_rowconfigure(3, weight=0)  # Custom sign upload area
+        self.custom_input_frame.grid_rowconfigure(4, weight=0)  # Execute button
+        self.custom_input_frame.grid_rowconfigure(5, weight=0)  # Footer
+
+        # Back button (top left)
+        back_button = ctk.CTkButton(
+            self.custom_input_frame,
+            text="< Back",
+            command=lambda: self.show_frame(self.home_frame),
+            width=80,
+            height=30,
+            fg_color="#E8ECEF",
+            text_color="#1A73E8",
+            hover_color="#D0D7DE",
+            border_width=0
+        )
+        back_button.grid(row=0, column=0, padx=(20, 0), pady=(20, 0), sticky="nw")
+
+        # Header frame (centered)
+        header_frame = ctk.CTkFrame(self.custom_input_frame, fg_color="white", corner_radius=8)
+        header_frame.grid(row=0, column=0, padx=20, pady=(60, 0), sticky="ew")
+
+        # Configure header for centering
+        header_frame.grid_columnconfigure(0, weight=1)
+
+        # Upload button (centered in header frame)
+        upload_button = ctk.CTkButton(
+            header_frame,
+            text="Upload Video",
+            command=self.select_video,
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        upload_button.grid(row=0, column=0, padx=20, pady=10)
+
+        # Drag-and-drop area (same as input_frame)
+        custom_drag_area = ctk.CTkFrame(self.custom_input_frame, fg_color="white", corner_radius=8)
+        custom_drag_area.grid(row=1, column=0, padx=20, pady=20, sticky="nsew")
+
+        # Configure drag area for centering
+        custom_drag_area.grid_rowconfigure(0, weight=1)
+        custom_drag_area.grid_rowconfigure(1, weight=0)
+        custom_drag_area.grid_rowconfigure(2, weight=1)
+        custom_drag_area.grid_columnconfigure(0, weight=1)
+
+        # Upload icon (centered)
+        upload_icon = ctk.CTkLabel(
+            custom_drag_area,
+            text="⬆",
+            font=ctk.CTkFont(size=40),
+            text_color="#A9A9A9"
+        )
+        upload_icon.grid(row=0, column=0, padx=20, pady=20)
+
+        # Text labels (centered)
+        drag_label = ctk.CTkLabel(
+            custom_drag_area,
+            text="Select video to upload",
+            font=ctk.CTkFont(size=16)
+        )
+        drag_label.grid(row=1, column=0, padx=20, pady=(0, 5))
+
+        drag_sublabel = ctk.CTkLabel(
+            custom_drag_area,
+            text="Or drag and drop video files",
+            font=ctk.CTkFont(size=14),
+            text_color="gray"
+        )
+        drag_sublabel.grid(row=2, column=0, padx=20, pady=(0, 20))
+
+        # Enable drag-and-drop
+        custom_drag_area.drop_target_register(DND_FILES)
+        custom_drag_area.dnd_bind('<<Drop>>', self.handle_drop)
+
+        # Selected file label
+        file_label = ctk.CTkLabel(
+            self.custom_input_frame,
+            textvariable=self.selected_file,
+            wraplength=700
+        )
+        file_label.grid(row=2, column=0, padx=20, pady=5)
+
+        # Custom sign selection frame
+        custom_sign_frame = ctk.CTkFrame(self.custom_input_frame, fg_color="#E8ECEF", corner_radius=0)
+        custom_sign_frame.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
+
+        # Configure custom sign frame
+        custom_sign_frame.grid_columnconfigure(0, weight=1)
+        custom_sign_frame.grid_columnconfigure(1, weight=1)
+
+        # Mode indicator
+        mode_label = ctk.CTkLabel(
+            custom_sign_frame,
+            text="Custom Sign Mode",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color="#1A73E8"
+        )
+        mode_label.grid(row=0, column=0, columnspan=2, padx=20, pady=(5, 15))
+
+        # Start sign container
+        start_sign_container = ctk.CTkFrame(custom_sign_frame, fg_color="white", corner_radius=8)
+        start_sign_container.grid(row=1, column=0, padx=20, pady=10)
+
+        # Start sign label
+        start_sign_label = ctk.CTkLabel(
+            start_sign_container,
+            text="Start Sign",
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        start_sign_label.grid(row=0, column=0, padx=10, pady=(10, 5))
+
+        # Start sign image placeholder/display area
+        self.start_sign_display = ctk.CTkFrame(
+            start_sign_container,
+            width=150,
+            height=150,
+            fg_color="#E8ECEF",
+            corner_radius=8
+        )
+        self.start_sign_display.grid(row=1, column=0, padx=10, pady=(0, 10))
+
+        # This will store the label or image widget for the start sign
+        self.start_sign_widget = ctk.CTkLabel(
+            self.start_sign_display,
+            text="No image selected",
+            text_color="gray"
+        )
+        self.start_sign_widget.place(relx=0.5, rely=0.5, anchor="center")
+
+        # Upload button for start sign
+        start_upload_btn = ctk.CTkButton(
+            start_sign_container,
+            text="Upload Start Sign",
+            command=lambda: self.select_custom_sign("start"),
+            font=ctk.CTkFont(size=12)
+        )
+        start_upload_btn.grid(row=2, column=0, padx=10, pady=(0, 10))
+
+        # # End sign container
+        # end_sign_container = ctk.CTkFrame(custom_sign_frame, fg_color="white", corner_radius=8)
+        # end_sign_container.grid(row=1, column=1, padx=20, pady=10)
+        #
+        # # End sign label
+        # end_sign_label = ctk.CTkLabel(
+        #     end_sign_container,
+        #     text="End Sign",
+        #     font=ctk.CTkFont(size=14, weight="bold")
+        # )
+        # end_sign_label.grid(row=0, column=0, padx=10, pady=(10, 5))
+        #
+        # # End sign image placeholder/display area
+        # self.end_sign_display = ctk.CTkFrame(
+        #     end_sign_container,
+        #     width=150,
+        #     height=150,
+        #     fg_color="#E8ECEF",
+        #     corner_radius=8
+        # )
+        # self.end_sign_display.grid(row=1, column=0, padx=10, pady=(0, 10))
+        #
+        # # This will store the label or image widget for the end sign
+        # self.end_sign_widget = ctk.CTkLabel(
+        #     self.end_sign_display,
+        #     text="No image selected",
+        #     text_color="gray"
+        # )
+        # self.end_sign_widget.place(relx=0.5, rely=0.5, anchor="center")
+        #
+        # # Upload button for end sign
+        # end_upload_btn = ctk.CTkButton(
+        #     end_sign_container,
+        #     text="Upload End Sign",
+        #     command=lambda: self.select_custom_sign("end"),
+        #     font=ctk.CTkFont(size=12)
+        # )
+        # end_upload_btn.grid(row=2, column=0, padx=10, pady=(0, 10))
+
+        # Execute button (centered)
+        execute_button = ctk.CTkButton(
+            self.custom_input_frame,
+            text="Execute",
+            command=self.execute_split,
+            width=150,
+            font=ctk.CTkFont(weight="bold")
+        )
+        execute_button.grid(row=4, column=0, padx=20, pady=10)
+
+        # Footer/info section (centered)
+        footer_frame = ctk.CTkFrame(self.custom_input_frame, fg_color="#E8ECEF", corner_radius=0)
+        footer_frame.grid(row=5, column=0, padx=20, pady=(10, 20), sticky="ew")
+
+        # Configure footer for centering
+        footer_frame.grid_columnconfigure(0, weight=1)
+
+        # Version info
+        info_label = ctk.CTkLabel(
+            footer_frame,
+            text="Video to Multiple Short Videos App v1.1",
+            font=ctk.CTkFont(size=12),
+            text_color="gray"
+        )
+        info_label.grid(row=0, column=0, padx=20, pady=(5, 0))
+
+        # Description
+        desc_label = ctk.CTkLabel(
+            footer_frame,
+            text="Easily split your videos using custom sign images!",
             font=ctk.CTkFont(size=12),
             text_color="gray"
         )
@@ -273,8 +599,8 @@ class VideoSplitterApp:
         # Back button (centered)
         back_button = ctk.CTkButton(
             self.results_frame,
-            text="Back",
-            command=lambda: self.show_frame(self.input_frame),
+            text="Back to Home",
+            command=lambda: self.show_frame(self.home_frame),
             width=150,
             font=ctk.CTkFont(weight="bold")
         )
@@ -296,6 +622,154 @@ class VideoSplitterApp:
         if file_path:
             self.selected_file.set(file_path)
 
+    def select_custom_sign(self, sign_type):
+        """Open file dialog to select a custom sign image.
+
+        Args:
+            sign_type: 'start' or 'end' to specify which sign to update
+        """
+        file_path = filedialog.askopenfilename(
+            filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif")]
+        )
+
+        if not file_path:
+            return
+
+        try:
+            # Check if 'sign' directory exists, if not create it
+            sign_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sign')
+            if not os.path.exists(sign_dir):
+                os.makedirs(sign_dir)
+
+            # Destination file name based on sign type
+            dest_filename = f"{sign_type}_sign{os.path.splitext(file_path)[1]}"
+            dest_path = os.path.join(sign_dir, dest_filename)
+
+            # Copy the image file to the signs directory
+            import shutil
+            shutil.copy(file_path, dest_path)
+
+            # Update the appropriate variable
+            if sign_type == "start":
+                self.custom_start_image = dest_path
+                self._update_sign_display(self.start_sign_display, self.start_sign_widget, dest_path, sign_type)
+            else:
+                self.custom_end_image = dest_path
+                self._update_sign_display(self.end_sign_display, self.end_sign_widget, dest_path, sign_type)
+
+            print(f"Custom {sign_type} sign image saved to: {dest_path}")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save custom sign image: {str(e)}")
+
+    def _update_sign_display(self, display_frame, widget, image_path, sign_type):
+        """Update the sign display with the selected image and add an X button.
+
+        Args:
+            display_frame: The frame containing the image display
+            widget: The current widget in the display (to be replaced)
+            image_path: Path to the image file
+            sign_type: 'start' or 'end' to specify which sign
+        """
+        # Clear existing widgets
+        if widget:
+            widget.destroy()
+
+        try:
+            # Create a frame to hold both the image and X button
+            container = ctk.CTkFrame(display_frame, fg_color="#E8ECEF", corner_radius=0)
+            container.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.9, relheight=0.9)
+
+            # Load and display the image using PIL and CTkImage
+            from PIL import Image, ImageTk
+            pil_image = Image.open(image_path)
+
+            # Resize image to fit the display
+            max_size = 130  # Slightly smaller than the 150px container
+            img_width, img_height = pil_image.size
+            scale = min(max_size / img_width, max_size / img_height)
+            new_width = int(img_width * scale)
+            new_height = int(img_height * scale)
+            pil_image = pil_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+            # Convert to CTkImage
+            ctk_image = ctk.CTkImage(light_image=pil_image, dark_image=pil_image,
+                                     size=(new_width, new_height))
+
+            # Create label to display the image
+            img_label = ctk.CTkLabel(container, image=ctk_image, text="")
+            img_label.place(relx=0.5, rely=0.5, anchor="center")
+
+            # Add X button to remove the image
+            x_button = ctk.CTkButton(
+                container,
+                text="✕",
+                width=20,
+                height=20,
+                fg_color="red",
+                hover_color="darkred",
+                command=lambda: self._remove_sign_image(sign_type)
+            )
+            x_button.place(relx=0.9, rely=0.1, anchor="ne")
+
+            # Update the reference to the new widget
+            if sign_type == "start":
+                self.start_sign_widget = container
+            else:
+                self.end_sign_widget = container
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to display sign image: {str(e)}")
+            # Reset to no image
+            label = ctk.CTkLabel(display_frame, text="Error loading image", text_color="red")
+            label.place(relx=0.5, rely=0.5, anchor="center")
+            if sign_type == "start":
+                self.start_sign_widget = label
+                self.custom_start_image = None
+            else:
+                self.end_sign_widget = label
+                self.custom_end_image = None
+
+    def _remove_sign_image(self, sign_type):
+        """Remove the custom sign image.
+
+        Args:
+            sign_type: 'start' or 'end' to specify which sign to remove
+        """
+        try:
+            # Get the path to the image
+            image_path = self.custom_start_image if sign_type == "start" else self.custom_end_image
+
+            # Clear the image from memory
+            if sign_type == "start":
+                self.custom_start_image = None
+                # Reset display
+                self.start_sign_widget.destroy()
+                self.start_sign_widget = ctk.CTkLabel(
+                    self.start_sign_display,
+                    text="No image selected",
+                    text_color="gray"
+                )
+                self.start_sign_widget.place(relx=0.5, rely=0.5, anchor="center")
+            else:
+                self.custom_end_image = None
+                # Reset display
+                self.end_sign_widget.destroy()
+                self.end_sign_widget = ctk.CTkLabel(
+                    self.end_sign_display,
+                    text="No image selected",
+                    text_color="gray"
+                )
+                self.end_sign_widget.place(relx=0.5, rely=0.5, anchor="center")
+
+            # Optionally delete the file
+            if image_path and os.path.exists(image_path):
+                os.remove(image_path)
+                print(f"Removed {sign_type} sign image: {image_path}")
+
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to remove sign image: {str(e)}")
+
     def handle_drop(self, event):
         """Handle drag-and-drop event for video files."""
         try:
@@ -305,10 +779,10 @@ class VideoSplitterApp:
             if file_path.startswith('{') and file_path.endswith('}'):
                 file_path = file_path[1:-1].split()[0]  # Take the first file if multiple
             # Check if the file is a valid video file
-            if Path(file_path).suffix.lower() in ['.mp4', '.avi', '.mkv']:
+            if Path(file_path).suffix.lower() in ['.mp4', '.avi', '.mkv', '.mov']:
                 self.selected_file.set(file_path)
             else:
-                messagebox.showwarning("Invalid File", "Please drop a valid video file (.mp4, .avi, .mkv)!")
+                messagebox.showwarning("Invalid File", "Please drop a valid video file (.mp4, .avi, .mkv, .mov)!")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to process the dropped file: {str(e)}")
 
@@ -318,9 +792,10 @@ class VideoSplitterApp:
         if not self.selected_file.get():
             messagebox.showwarning("No File", "Please select a video first!")
             return
-        if start_sign == "Select Start Gesture":
-            messagebox.showwarning("No Gesture", "Please select start gesture!")
-            return
+        if self.mode.get() == "hand_sign":
+            if start_sign == "Select Start Gesture":
+                messagebox.showwarning("No Gesture", "Please select start gesture!")
+                return
 
         self.show_frame(self.loading_frame)
         run_main_in_thread(self)
@@ -490,7 +965,7 @@ class VideoSplitterApp:
         popup = tk.Menu(self.master, tearoff=0)
         popup.add_command(label="Rename", command=lambda: self.rename_video(video_path))
         popup.add_command(label="Delete", command=lambda: self.delete_video(video_path))
-        popup.add_command(label="Copy path", command=lambda: self.copy_path(self.selected_file.get()))
+        popup.add_command(label="Copy path", command=lambda: self.copy_path(video_path))
 
         # Display the popup menu
         try:
@@ -533,5 +1008,25 @@ class VideoSplitterApp:
         self.master.clipboard_clear()
         self.master.clipboard_append(video_path)
         messagebox.showinfo("Info", "Path copied to clipboard")
+
+    def check_for_saved_signs(self):
+        """Check for existing sign images and display them if found"""
+        sign_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sign')
+        if not os.path.exists(sign_dir):
+            return
+
+        # Check for start sign
+        start_files = [f for f in os.listdir(sign_dir) if f.startswith('start_sign')]
+        if start_files:
+            start_path = os.path.join(sign_dir, start_files[0])
+            self.custom_start_image = start_path
+            self._update_sign_display(self.start_sign_display, self.start_sign_widget, start_path, "start")
+
+        # Check for end sign
+        end_files = [f for f in os.listdir(sign_dir) if f.startswith('end_sign')]
+        if end_files:
+            end_path = os.path.join(sign_dir, end_files[0])
+            self.custom_end_image = end_path
+            self._update_sign_display(self.end_sign_display, self.end_sign_widget, end_path, "end")
 
 
