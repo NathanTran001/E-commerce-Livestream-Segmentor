@@ -33,10 +33,11 @@ from tkinter import filedialog, messagebox, simpledialog
 from tkinterdnd2 import *
 
 from utils.clip import subclip
-from utils.hand_gesture import calc_landmark_list, pre_process_landmark, run_with_camera, process_video_parallel
+from utils.hand_gesture import process_segment_with_hand
+from utils.sign_detector import SignDetector, process_segment_with_sign
 from utils.timestamps import normalize_timestamps, calculate_segment_boundaries
 
-pose_duration = 1
+pose_duration = 0.8
 time_between_batches = 0.4
 
 try:
@@ -112,6 +113,67 @@ def calculate_frames_to_skip(fps):
     return max(1, max_skip - 1)
 
 
+def process_video_parallel(video_path, num_segments, start_sign, end_sign):
+    """
+    Process a video by dividing it into segments and processing them in parallel.
+
+    Args:
+        video_path (str): Path to the video file
+        num_segments (int): Number of segments to divide the video into
+
+    Returns:
+        tuple: Combined lists of start and end timestamps
+    """
+    # Calculate segment boundaries
+    segments = calculate_segment_boundaries(video_path, num_segments)
+    print(f"Dividing video into {num_segments} segments:")
+    for i, (start, end) in enumerate(segments):
+        print(f"  Segment {i + 1}: {start:.2f}s - {end:.2f}s")
+
+    # Create a pool of worker processes
+    pool = mtp.Pool(processes=min(mtp.cpu_count(), num_segments))
+
+    # Create a partial function with the video_path already set
+    process_segment = partial(process_segment_with_sign, video_path=video_path, start_sign=start_sign, end_sign=end_sign)
+
+    # Process all segments in parallel
+    results = pool.starmap(process_segment, segments)
+
+    # Close the pool
+    pool.close()
+    pool.join()
+
+    # Combine results from all segments
+    all_starts = []
+    all_ends = []
+
+    for starts, ends in results:
+        all_starts.extend(starts)
+        all_ends.extend(ends)
+
+    # Sort the combined timestamps
+    all_starts.sort()
+    all_ends.sort()
+
+    # Normalize timestamps if needed
+    all_starts = normalize_timestamps(all_starts, time_between_batches, pose_duration)
+    print(f"process_video_parallel: End before normalize: {all_ends}")
+    all_ends = normalize_timestamps(all_ends, time_between_batches, pose_duration)
+    print(f"process_video_parallel: End after normalize: {all_ends}")
+    if len(all_ends) > 0 and len(all_starts) > 0:
+        if all_ends[-1] > all_starts[0]:
+            real_end = all_ends[-1]
+            all_ends.clear()
+            all_ends.append(real_end)
+        else:
+            all_ends.clear()
+    else:
+        all_ends.clear()
+    print(f"process_video_parallel: End after cleaning: {all_ends}")
+
+    return all_starts, all_ends
+
+
 def main(app):
     start_time = time.perf_counter()
 
@@ -127,6 +189,24 @@ def main(app):
     print(f"num_cores: {num_cores}")
     # Use slightly fewer cores than available to avoid overloading the system
     num_segments = max(2, num_cores - 1)
+    detector = SignDetector()
+
+    # Try to load existing model first
+    if not detector.load_model():
+        print("No existing model found or error loading model")
+
+        # Select and process a new reference image
+        if detector.select_reference_image():
+            print(f"Selected reference image: {detector.reference_image_path}")
+
+            if detector.process_reference_image():
+                detector.save_model()
+            else:
+                print("Failed to process reference image")
+                return
+        else:
+            print("No reference image selected, exiting")
+            return
 
     # Process video in parallel
     timestamps_start, timestamps_end = process_video_parallel(video_path, num_segments, start_sign, end_sign)
@@ -148,12 +228,16 @@ def main(app):
     datetime_string = app.date_time.get()
 
     # Create clips from the timestamps
+    folder_path = f"videos/{datetime_string}"
+    if not os.path.exists(folder_path):
+        os.makedirs(folder_path)
+
     subclip_tasks = []
     segment_name = 1
     for idx, point_to_start in enumerate(timestamps_start):
         if len(timestamps_start) >= 2 and len(timestamps_start) > idx + 1:
             subclip_tasks.append(
-                (datetime_string, video_path, point_to_start, timestamps_start[idx + 1], f"{segment_name}.mp4"))
+                (video_path, point_to_start, timestamps_start[idx + 1], f"{folder_path}/{segment_name}.mp4"))
             segment_name = segment_name + 1
 
     print(f"start point of last clip: {timestamps_start[-1]}")
@@ -163,10 +247,10 @@ def main(app):
         print(f"end point of last clip: {timestamps_end[0]}")
         end_time_last = timestamps_end[0]
         subclip_tasks.append(
-            (datetime_string, video_path, start_time_last, end_time_last, f"{segment_name}.mp4"))
+            (video_path, start_time_last, end_time_last, f"{folder_path}/{segment_name}.mp4"))
     else:
         subclip_tasks.append(
-            (datetime_string, video_path, start_time_last, VideoFileClip(video_path).duration, f"{segment_name}.mp4"))
+            (video_path, start_time_last, VideoFileClip(video_path).duration, f"{folder_path}/{segment_name}.mp4"))
 
     with mtp.Pool() as pool:
         pool.map(subclip, subclip_tasks)

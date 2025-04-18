@@ -29,6 +29,7 @@ class VideoSplitterApp:
         self.end = tk.StringVar(value="Select End Gesture")
         # Set up frames for different screens
         self._setup_frames()
+        self.mode = tk.IntVar
 
         # Start with the input frame visible
         self.show_frame(self.input_frame)
@@ -290,7 +291,7 @@ class VideoSplitterApp:
     def select_video(self):
         """Open file dialog to select a video file."""
         file_path = filedialog.askopenfilename(
-            filetypes=[("Video files", "*.mp4 *.avi *.mkv")]
+            filetypes=[("Video files", "*.mp4 *.avi *.mkv *.MOV")]
         )
         if file_path:
             self.selected_file.set(file_path)

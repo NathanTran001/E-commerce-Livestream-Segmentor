@@ -38,68 +38,6 @@ def get_args():
     return args
 
 
-def process_video_parallel(video_path, num_segments, start_sign, end_sign):
-    """
-    Process a video by dividing it into segments and processing them in parallel.
-
-    Args:
-        video_path (str): Path to the video file
-        num_segments (int): Number of segments to divide the video into
-
-    Returns:
-        tuple: Combined lists of start and end timestamps
-    """
-    from ELS import time_between_batches, pose_duration
-    # Calculate segment boundaries
-    segments = calculate_segment_boundaries(video_path, num_segments)
-    print(f"Dividing video into {num_segments} segments:")
-    for i, (start, end) in enumerate(segments):
-        print(f"  Segment {i + 1}: {start:.2f}s - {end:.2f}s")
-
-    # Create a pool of worker processes
-    pool = mtp.Pool(processes=min(mtp.cpu_count(), num_segments))
-
-    # Create a partial function with the video_path already set
-    process_segment = partial(process_segment_with_hand, video_path=video_path, start_sign=start_sign, end_sign=end_sign)
-
-    # Process all segments in parallel
-    results = pool.starmap(process_segment, segments)
-
-    # Close the pool
-    pool.close()
-    pool.join()
-
-    # Combine results from all segments
-    all_starts = []
-    all_ends = []
-
-    for starts, ends in results:
-        all_starts.extend(starts)
-        all_ends.extend(ends)
-
-    # Sort the combined timestamps
-    all_starts.sort()
-    all_ends.sort()
-
-    # Normalize timestamps if needed
-    all_starts = normalize_timestamps(all_starts, time_between_batches, pose_duration)
-    print(f"process_video_parallel: End before normalize: {all_ends}")
-    all_ends = normalize_timestamps(all_ends, time_between_batches, pose_duration)
-    print(f"process_video_parallel: End after normalize: {all_ends}")
-    if len(all_ends) > 0 and len(all_starts) > 0:
-        if all_ends[-1] > all_starts[0]:
-            real_end = all_ends[-1]
-            all_ends.clear()
-            all_ends.append(real_end)
-        else:
-            all_ends.clear()
-    else:
-        all_ends.clear()
-    print(f"process_video_parallel: End after cleaning: {all_ends}")
-
-    return all_starts, all_ends
-
-
 def process_segment_with_hand(start_time, end_time, video_path, start_sign, end_sign):
     """
     Process a specific segment of the video.
