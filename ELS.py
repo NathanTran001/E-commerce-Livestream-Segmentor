@@ -1,40 +1,23 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-import csv
-import argparse
 import ctypes
-import itertools
 import os
-import subprocess
-import sys
-from collections import Counter
-from collections import deque
 from datetime import datetime
 from functools import partial
-from pathlib import Path
-
-import cv2 as cv
-import numpy as np
-import mediapipe as mp
 import time
 import multiprocessing as mtp
 
 from moviepy import VideoFileClip
 
-from gui.GUI import VideoSplitterApp, start_sign, end_sign
-from hand_gesture_recognizer.utils.cvfpscalc import CvFpsCalc
-from hand_gesture_recognizer.model.keypoint_classifier.keypoint_classifier import KeyPointClassifier
-from hand_gesture_recognizer.model.point_history_classifier.point_history_classifier import PointHistoryClassifier
+from gui.GUI import VideoSplitterApp
 
 import threading
-import tkinter as tk
 import customtkinter as ctk
-from tkinter import filedialog, messagebox, simpledialog
 from tkinterdnd2 import *
 
 from utils.clip import subclip
 from utils.hand_gesture import process_segment_with_hand
-from utils.sign_detector import SignDetector, process_segment_with_sign
+from utils.sign_detector import process_segment_with_sign
 from utils.timestamps import normalize_timestamps, calculate_segment_boundaries
 
 pose_duration = 0.8
@@ -135,24 +118,6 @@ def process_video_parallel(app, video_path, num_segments, start_sign, end_sign):
 
     process_segment = partial(process_segment_with_hand, video_path=video_path, start_sign=start_sign, end_sign=end_sign)
     if app.mode.get() == "custom_sign":
-        detector = SignDetector()
-
-        # Try to load existing model first
-        if not detector.load_model():
-            print("No existing model found or error loading model")
-
-            # Select and process a new reference image
-            if detector.select_reference_image():
-                print(f"Selected reference image: {detector.reference_image_path}")
-
-                if detector.process_reference_image():
-                    detector.save_model()
-                else:
-                    print("Failed to process reference image")
-                    return
-            else:
-                print("No reference image selected, exiting")
-                return
         process_segment = partial(process_segment_with_sign, video_path=video_path, start_sign=start_sign, end_sign=end_sign)
 
     # Process all segments in parallel
@@ -210,7 +175,7 @@ def main(app):
     num_segments = max(2, num_cores - 1)
 
     # Process video in parallel
-    timestamps_start, timestamps_end = process_video_parallel(app, video_path, num_segments, start_sign, end_sign)
+    timestamps_start, timestamps_end = process_video_parallel(app, video_path, num_segments, app.start.get(), app.end.get())
 
     # Process the results as before
     print("starts after normalize: ")
@@ -232,6 +197,7 @@ def main(app):
     folder_path = f"videos/{datetime_string}"
     if not os.path.exists(folder_path):
         os.makedirs(folder_path)
+    app.output_folder.set(folder_path)
 
     subclip_tasks = []
     segment_name = 1

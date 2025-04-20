@@ -3,17 +3,27 @@ import numpy as np
 import os
 import pickle
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 from datetime import datetime
+
+ref_signs_folder = f"./sign_detector/signs"
+sign_filename = "sign.png"
+model_folder = f"./sign_detector/model"
+model_filename = "sign_detector_model.pkl"
+ref_keypoints_folder = f"./sign_detector/keypoints"
+ref_keypoints_filename = "reference_keypoints.png"
 
 
 class SignDetector:
     def __init__(self):
-        model_folder = f"./sign_detector/model"
         if not os.path.exists(model_folder):
             os.makedirs(model_folder)
-        self.model_path = f"{model_folder}/sign_detector_model.pkl"
-        self.reference_image_path = None
+        if not os.path.exists(ref_keypoints_folder):
+            os.makedirs(ref_keypoints_folder)
+        if not os.path.exists(ref_signs_folder):
+            os.makedirs(ref_signs_folder)
+        self.model_path = f"{model_folder}/{model_filename}"
+        self.reference_image_path = os.path.join(ref_signs_folder, sign_filename)
         self.reference_image = None
 
         # Use a combination of ORB and SIFT-like detectors for better scale invariance
@@ -106,13 +116,11 @@ class SignDetector:
 
         print(f"Extracted {len(self.reference_keypoints)} features from reference image")
 
-        ref_keypoints_folder = f"./sign_detector/keypoints"
-        if not os.path.exists(ref_keypoints_folder):
-            os.makedirs(ref_keypoints_folder)
+        cv2.imwrite(f"{ref_signs_folder}/{sign_filename}", self.reference_image)
         # Draw keypoints on reference image and show
         keypoints_image = cv2.drawKeypoints(self.reference_image, self.reference_keypoints, None,
                                             flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-        cv2.imwrite(f"{ref_keypoints_folder}/reference_keypoints.png", keypoints_image)
+        cv2.imwrite(f"{ref_keypoints_folder}/{ref_keypoints_filename}", keypoints_image)
 
         # Show images for visual inspection
         # cv2.imshow("Reference Image", self.reference_image)
@@ -361,6 +369,17 @@ class SignDetector:
         cap.release()
         cv2.destroyAllWindows()
 
+    def initialize(self):
+        # Try to load existing model first
+        if not self.load_model():
+            if self.process_reference_image():
+                self.save_model()
+                return True
+            else:
+                messagebox.showwarning("No Sign Found", "No existing sign or error loading sign!")
+                return False
+        return True
+
 def process_segment_with_sign(start_time, end_time, video_path, start_sign, end_sign):
     """
     Process a specific segment of the video.
@@ -440,30 +459,3 @@ def process_segment_with_sign(start_time, end_time, video_path, start_sign, end_
     cap.release()
     return timestamps_start, timestamps_end
 
-
-# def main():
-#     detector = SignDetector()
-#
-#     # Try to load existing model first
-#     if not detector.load_model():
-#         print("No existing model found or error loading model")
-#
-#         # Select and process a new reference image
-#         if detector.select_reference_image():
-#             print(f"Selected reference image: {detector.reference_image_path}")
-#
-#             if detector.process_reference_image():
-#                 detector.save_model()
-#             else:
-#                 print("Failed to process reference image")
-#                 return
-#         else:
-#             print("No reference image selected, exiting")
-#             return
-#
-#     # Run the camera detection
-#     detector.run_camera_detection()
-#
-#
-# if __name__ == "__main__":
-#     main()

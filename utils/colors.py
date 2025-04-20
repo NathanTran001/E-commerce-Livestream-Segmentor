@@ -1,0 +1,1 @@
+DEFAULT = "#F0F0F0"
