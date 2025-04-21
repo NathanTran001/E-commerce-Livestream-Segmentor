@@ -21,8 +21,8 @@ from utils.hand_gesture import process_segment_with_hand
 from utils.sign_detector import process_segment_with_sign
 from utils.timestamps import normalize_timestamps, calculate_segment_boundaries
 
-pose_duration = 0.8
-time_between_batches = pose_duration * 0.5
+pose_duration = 1
+time_between_batches = pose_duration * 0.3
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(1)  # For Windows
@@ -73,7 +73,7 @@ def calculate_frames_to_skip(fps):
         int: Number of frames to skip between processed frames
     """
     reference_fps = 30.0
-    reference_skip = 7
+    reference_skip = 6
     min_samples = 3
     # Base linear scaling from fps and pose_duration
     linear_skip = (fps / reference_fps) * reference_skip * pose_duration / 0.8
@@ -108,7 +108,7 @@ def process_video_parallel(app, video_path, num_segments, start_sign, end_sign):
 
     process_segment = partial(process_segment_with_hand, video_path=video_path, start_sign=start_sign, end_sign=end_sign)
     if app.mode.get() == "custom_sign":
-        process_segment = partial(process_segment_with_sign, video_path=video_path, start_sign=start_sign, end_sign=end_sign)
+        process_segment = partial(process_segment_with_sign, video_path=video_path)
 
     # Process all segments in parallel
     results = pool.starmap(process_segment, segments)
@@ -153,8 +153,8 @@ def main(app):
     global time_between_batches
     start_time = time.perf_counter()
 
-    # APP STARTS #################################################
-    time_between_batches = pose_duration * 0.5
+    # APP STARTS ####################################f#############
+    time_between_batches = pose_duration * 0.3
 
     video_path = app.selected_file.get()
     print(f"Processing video: {video_path}")
@@ -163,7 +163,7 @@ def main(app):
     num_cores = mtp.cpu_count()
     print(f"num_cores: {num_cores}")
     # Use slightly fewer cores than available to avoid overloading the system
-    num_segments = max(2, num_cores - 1)
+    num_segments = max(2, num_cores - 4)
     cap = cv2.VideoCapture(video_path)
 
     if not cap.isOpened():
@@ -173,7 +173,7 @@ def main(app):
     frame_rate = cap.get(cv2.CAP_PROP_FPS)
 
     if app.mode.get() == "custom_sign":
-        initialize_dynamic_parameters(frame_rate, 1.7)
+        initialize_dynamic_parameters(frame_rate, 2.0)
     else:
         initialize_dynamic_parameters(frame_rate)
 

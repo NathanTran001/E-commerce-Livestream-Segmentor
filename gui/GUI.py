@@ -577,7 +577,7 @@ class VideoSplitterApp:
     def create_icon_combobox(self, parent, variable, options, row):
         # Create a frame to hold the selection display and dropdown button
         combo_frame = ctk.CTkFrame(parent, fg_color="white", corner_radius=6, height=40)
-        combo_frame.grid(row=row, column=0, padx=5, pady=(5, 10), sticky="ew")
+        combo_frame.grid(row=row, column=0, padx=5, pady=(5, 15), sticky="ew")
         combo_frame.grid_columnconfigure(0, weight=1)  # Icon+text area
         combo_frame.grid_columnconfigure(1, weight=0)  # Button
 
@@ -1169,5 +1169,6 @@ class VideoSplitterApp:
             self.custom_start_image = path_to_sign
             self._update_sign_display(self.start_sign_display, self.start_sign_widget, path_to_sign, "start")
             self.sign_detector.initialize()
+            # self.sign_detector.run_camera_detection()
 
 
