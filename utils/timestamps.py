@@ -2,33 +2,51 @@ import cv2 as cv
 
 
 def normalize_timestamps(timestamps, time_between_batches, pose_duration):
-    temp_timestamps = []
+    """
+    Process timestamps and return normalized timestamps that represent valid pose completions.
+
+    A valid pose is determined when a batch of timestamps spans at least 'pose_duration'.
+    Timestamps are grouped into batches where each adjacent pair has a gap less than 'time_between_batches'.
+    For each valid batch, the last timestamp is returned as the normalized timestamp.
+
+    Args:
+        timestamps: List of timestamp floats to process
+        time_between_batches: Minimum time gap that separates batches
+        pose_duration: Minimum duration a batch must span to be considered valid
+
+    Returns:
+        List of normalized timestamps (one per valid batch)
+    """
+    if not timestamps or len(timestamps) < 2:
+        return []
+
     normalized_timestamps = []
-    for idx, timestamp in enumerate(timestamps):  # 2.1 2.2 2.3   5.6 5.7   8.1 8.2 8.3 8.4 8.5
-        # When haven't reached the end
-        if len(timestamps) > idx + 1 and len(timestamps) >= 2:
-            timestamps.sort()
-            # Keep flushing to temp
-            temp_timestamps.append(timestamp)
-            # When reach a different batch
-            if abs(timestamp - timestamps[idx + 1]) > time_between_batches:
-                # Validate current temp batch and clean temp
-                if (len(temp_timestamps) > 0 and
-                        temp_timestamps[-1] - temp_timestamps[0] >= pose_duration):
-                    normalized_timestamps.append(temp_timestamps[-1])
-                temp_timestamps.clear()
-        # When reach the end
-        elif idx + 1 == len(timestamps) >= 2:
-            # Only process if it is a same-batch stamp since a different-batch stamp being the final stamp is discarded
-            # If same batch -> Still add that final stamp to temp
-            if (len(temp_timestamps) > 0 and
-                    abs(timestamp - temp_timestamps[-1]) <= time_between_batches):
-                temp_timestamps.append(timestamp)
-            # Validate current batch and clean temp
-            if (len(temp_timestamps) > 0 and
-                    temp_timestamps[-1] - temp_timestamps[0] >= pose_duration):
-                normalized_timestamps.append(temp_timestamps[-1])
-            temp_timestamps.clear()
+    timestamps.sort()
+    print(f"TS A: {timestamps}")
+
+    current_batch = [timestamps[0]]  # Start with the first timestamp
+
+    for i in range(1, len(timestamps)):
+        current_timestamp = timestamps[i]
+        previous_timestamp = timestamps[i - 1]
+
+        # Check if this timestamp belongs to the current batch
+        if abs(current_timestamp - previous_timestamp) < time_between_batches:
+            # Same batch, add to current batch
+            current_batch.append(current_timestamp)
+        else:
+            # Different batch, process the previous batch if valid
+            if len(current_batch) > 1 and (current_batch[-1] - current_batch[0]) >= pose_duration:
+                normalized_timestamps.append(current_batch[-1])
+
+            # Start a new batch with the current timestamp
+            current_batch = [current_timestamp]
+
+    # Process the final batch
+    if len(current_batch) > 1 and (current_batch[-1] - current_batch[0]) >= pose_duration:
+        normalized_timestamps.append(current_batch[-1])
+
+    print(f"TS B: {normalized_timestamps}")
     return normalized_timestamps
 
 

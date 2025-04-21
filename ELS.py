@@ -7,6 +7,7 @@ from functools import partial
 import time
 import multiprocessing as mtp
 
+import cv2
 from moviepy import VideoFileClip
 
 from gui.GUI import VideoSplitterApp
@@ -21,26 +22,21 @@ from utils.sign_detector import process_segment_with_sign
 from utils.timestamps import normalize_timestamps, calculate_segment_boundaries
 
 pose_duration = 0.8
-time_between_batches = 0.4
+time_between_batches = pose_duration * 0.5
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(1)  # For Windows
 except:
     pass  # On non-Windows platforms
 
-################################# GUI #################################
 
-
-# Function to switch between frames (screens)
 def run_main_in_thread(app):
     thread = threading.Thread(target=main, args=(app,))
     thread.daemon = True  # Ensures thread exits when main program ends
     thread.start()
 
 
-################################# GUI #################################
-
-def initialize_dynamic_parameters(fps):
+def initialize_dynamic_parameters(fps, scale=1.0):
     """
     Initialize global parameters based on frame rate.
 
@@ -49,6 +45,7 @@ def initialize_dynamic_parameters(fps):
     """
     global pose_duration, time_between_batches
 
+    time_between_batches = time_between_batches * scale
     # Reference values optimized for 30fps video
     reference_fps = 30.0
     reference_pose_duration = pose_duration
@@ -75,26 +72,19 @@ def calculate_frames_to_skip(fps):
     Returns:
         int: Number of frames to skip between processed frames
     """
-    # Reference values for 30fps
     reference_fps = 30.0
-    reference_min_detection_window = pose_duration
-    reference_min_samples = 3
+    reference_skip = 7
+    min_samples = 3
+    # Base linear scaling from fps and pose_duration
+    linear_skip = (fps / reference_fps) * reference_skip * pose_duration / 0.8
 
-    # Scale detection window based on fps ratio
-    fps_ratio = reference_fps / fps
-    min_detection_window_seconds = reference_min_detection_window * fps_ratio
+    # Still enforce a safety cap: ensure at least min_samples per pose
+    frames_available = fps * pose_duration
+    max_safe_skip = frames_available / min_samples
 
-    # Calculate how many frames we need to check within our minimum detection window
-    frames_in_window = fps * min_detection_window_seconds
-
-    # Calculate maximum frames to skip while still getting enough samples
-    max_skip = int(frames_in_window / reference_min_samples)
-
-    print(f"- Min detection window: {min_detection_window_seconds:.2f}s")
-
-    # Ensure we don't return 0 (which would mean process every frame)
-    return max(1, max_skip - 1)
-
+    # Final decision
+    skip = int(min(linear_skip, max_safe_skip))
+    return max(1, skip)
 
 def process_video_parallel(app, video_path, num_segments, start_sign, end_sign):
     """
@@ -140,6 +130,7 @@ def process_video_parallel(app, video_path, num_segments, start_sign, end_sign):
     all_ends.sort()
 
     # Normalize timestamps if needed
+    print(f"TUNG TUNG TUNG {time_between_batches}")
     all_starts = normalize_timestamps(all_starts, time_between_batches, pose_duration)
     print(f"process_video_parallel: End before normalize: {all_ends}")
     all_ends = normalize_timestamps(all_ends, time_between_batches, pose_duration)
@@ -159,11 +150,11 @@ def process_video_parallel(app, video_path, num_segments, start_sign, end_sign):
 
 
 def main(app):
+    global time_between_batches
     start_time = time.perf_counter()
 
     # APP STARTS #################################################
-
-    # Create App instance and run it
+    time_between_batches = pose_duration * 0.5
 
     video_path = app.selected_file.get()
     print(f"Processing video: {video_path}")
@@ -173,6 +164,18 @@ def main(app):
     print(f"num_cores: {num_cores}")
     # Use slightly fewer cores than available to avoid overloading the system
     num_segments = max(2, num_cores - 1)
+    cap = cv2.VideoCapture(video_path)
+
+    if not cap.isOpened():
+        print(f"Error: Could not open video.")
+
+    # Get video details
+    frame_rate = cap.get(cv2.CAP_PROP_FPS)
+
+    if app.mode.get() == "custom_sign":
+        initialize_dynamic_parameters(frame_rate, 1.7)
+    else:
+        initialize_dynamic_parameters(frame_rate)
 
     # Process video in parallel
     timestamps_start, timestamps_end = process_video_parallel(app, video_path, num_segments, app.start.get(), app.end.get())

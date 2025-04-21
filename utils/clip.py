@@ -8,8 +8,9 @@ def subclip(args):
         "-ss", str(start_time),
         "-i", video_path,
         "-t", str(end_time - start_time),
-        "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-c:a", "aac",
+        "-c", "copy",
+        # "-c:v", "libx264",
+        # "-preset", "ultrafast",
+        # "-c:a", "aac",
         f"{output_file}"
     ])

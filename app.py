@@ -4,16 +4,13 @@ import csv
 import copy
 import argparse
 import itertools
-import multiprocessing
 import subprocess
-import sys
 from collections import Counter
 from collections import deque
 
-from moviepy.editor import VideoFileClip
+from moviepy import VideoFileClip
 from moviepy.video.io.ffmpeg_tools import ffmpeg_extract_subclip
 
-import cv2
 import cv2 as cv
 import numpy as np
 import mediapipe as mp
@@ -28,8 +25,8 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
-pose_duration = 0.2
-time_between_batches = 2
+pose_duration = 0.8
+time_between_batches = 0.4
 
 ################################# GUI #################################
 # Function to switch between frames (screens)
@@ -179,7 +176,7 @@ def process_video_single_thread(video_path):
     frame_count = 0
     end_detected = False
 
-    # monitor(cap, hands)
+    monitor(cap, hands)
 
     while True and not end_detected:
         ret, image = cap.read()
@@ -199,7 +196,7 @@ def process_video_single_thread(video_path):
                     hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
 
                     # Start points
-                    if keypoint_classifier_labels[hand_sign_id] == "Peace":
+                    if keypoint_classifier_labels[hand_sign_id] == "OK":
                         timestamp = frame_count / frame_rate
                         timestamps_start.append(timestamp)
                     # End points
@@ -945,7 +942,7 @@ def monitor(cap, hands):
         if key == 27:  # ESC
             break
         number, mode = select_mode(key, mode)
-
+        cv.namedWindow('Hand Gesture Recognition', cv.WINDOW_NORMAL)
         # Camera capture #####################################################
         ret, image = cap.read()
         if not ret:

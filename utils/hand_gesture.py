@@ -2,18 +2,15 @@ import argparse
 import csv
 import itertools
 from collections import deque, Counter
-from functools import partial
 
 import cv2 as cv
 import numpy as np
 import mediapipe as mp
 import copy
-import multiprocessing as mtp
 
 from hand_gesture_recognizer.model.keypoint_classifier.keypoint_classifier import KeyPointClassifier
 from hand_gesture_recognizer.model.point_history_classifier.point_history_classifier import PointHistoryClassifier
 from hand_gesture_recognizer.utils.cvfpscalc import CvFpsCalc
-from utils.timestamps import calculate_segment_boundaries, normalize_timestamps
 
 
 def get_args():
@@ -81,7 +78,7 @@ def process_segment_with_hand(start_time, end_time, video_path, start_sign, end_
     timestamps_start = []
     timestamps_end = []
 
-    initialize_dynamic_parameters(frame_rate)
+    # initialize_dynamic_parameters(frame_rate)
     frame_skip = calculate_frames_to_skip(frame_rate)
     print(f"Frame skip: {frame_skip}")
     end_detected = False

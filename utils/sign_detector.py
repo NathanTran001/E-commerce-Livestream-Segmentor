@@ -36,7 +36,7 @@ class SignDetector:
 
         self.min_match_count = 5
         self.ratio_threshold = 0.75  # For Lowe's ratio test
-        self.match_threshold = 0.30
+        self.match_threshold = 0.35
         self.loaded_model = False
 
         # Store keypoints and descriptors
@@ -417,12 +417,10 @@ def process_segment_with_sign(start_time, end_time, video_path, start_sign, end_
     timestamps_start = []
     timestamps_end = []
 
-    initialize_dynamic_parameters(frame_rate)
+    # initialize_dynamic_parameters(frame_rate, 1.5)
     frame_skip = calculate_frames_to_skip(frame_rate)
     print(f"Frame skip: {frame_skip}")
     end_detected = False
-    print(start_sign)
-    print(end_sign)
     # Process frames until we reach the end frame
     while frame_count < end_frame and not end_detected:
         ret, image = cap.read()
@@ -454,7 +452,6 @@ def process_segment_with_sign(start_time, end_time, video_path, start_sign, end_
             # If sign is detected with good confidence
             if avg_confidence >= detector.match_threshold:
                 timestamps_start.append(timestamp)
-                print(f"Sign detected at {timestamp}")
         frame_count += 1
     cap.release()
     return timestamps_start, timestamps_end
