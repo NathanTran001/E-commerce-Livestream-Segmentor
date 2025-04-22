@@ -6,6 +6,7 @@ import customtkinter as ctk
 from tkinter import filedialog, messagebox, simpledialog
 from tkinterdnd2 import *
 from PIL import Image, ImageTk
+import cv2
 
 from utils import sign_detector
 from utils.sign_detector import ref_signs_folder, sign_filename, ref_keypoints_folder, ref_keypoints_filename, \
@@ -18,6 +19,7 @@ end_sign = "Select End Gesture"
 sign_path = os.path.join(ref_signs_folder, sign_filename)
 model_path = os.path.join(model_folder, model_filename)
 keypoint_path = os.path.join(ref_keypoints_folder, ref_keypoints_filename)
+
 
 class VideoSplitterApp:
     """Application for splitting videos into multiple shorter clips.
@@ -106,7 +108,7 @@ class VideoSplitterApp:
         # Title
         title_label = ctk.CTkLabel(
             self.home_frame,
-            text="Video Splitter App",
+            text="ELS",
             font=ctk.CTkFont(size=24, weight="bold"),
             text_color="#1A73E8"
         )
@@ -150,7 +152,7 @@ class VideoSplitterApp:
         # Version info at bottom
         version_label = ctk.CTkLabel(
             self.home_frame,
-            text="Video to Multiple Short Videos App v1.1",
+            text="E-commerce Livestream Segmentor v2.0",
             font=ctk.CTkFont(size=12),
             text_color="gray"
         )
@@ -170,7 +172,6 @@ class VideoSplitterApp:
         self.hand_main_frame.grid_rowconfigure(0, weight=0)  # Header
         self.hand_main_frame.grid_rowconfigure(1, weight=1)  # Drag area
         self.hand_main_frame.grid_rowconfigure(2, weight=0)  # File label
-        # self.hand_main_frame.grid_rowconfigure(3, weight=0)  # Gesture selection
         self.hand_main_frame.grid_rowconfigure(4, weight=0)  # Execute button
         self.hand_main_frame.grid_rowconfigure(5, weight=0)  # Footer
 
@@ -187,46 +188,6 @@ class VideoSplitterApp:
 
         self.setup_upload_row(upload_row_frame)
         self.setup_gesture_selection(upload_row_frame)
-        # # Gesture selection frame
-        # gesture_frame = ctk.CTkFrame(self.hand_main_frame, fg_color="#E8ECEF", corner_radius=0)
-        # gesture_frame.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
-        # gesture_frame.grid_columnconfigure(0, weight=1)
-        # gesture_frame.grid_columnconfigure(1, weight=1)
-        #
-        # # Gesture options
-        # gesture_options = ["Peace", "OK", "Open", "Close"]
-        #
-        # # Start gesture dropdown
-        # start_gesture_label = ctk.CTkLabel(
-        #     gesture_frame,
-        #     text="Start Gesture:",
-        #     font=ctk.CTkFont(size=14)
-        # )
-        # start_gesture_label.grid(row=1, column=0, padx=(0, 10), pady=5, sticky="e")
-        #
-        # start_gesture_menu = ctk.CTkOptionMenu(
-        #     gesture_frame,
-        #     variable=self.start,
-        #     values=gesture_options,
-        #     width=150
-        # )
-        # start_gesture_menu.grid(row=1, column=1, padx=(0, 20), pady=5, sticky="w")
-        #
-        # # End gesture dropdown
-        # end_gesture_label = ctk.CTkLabel(
-        #     gesture_frame,
-        #     text="End Gesture:",
-        #     font=ctk.CTkFont(size=14)
-        # )
-        # end_gesture_label.grid(row=2, column=0, padx=(0, 10), pady=5, sticky="e")
-        #
-        # end_gesture_menu = ctk.CTkOptionMenu(
-        #     gesture_frame,
-        #     variable=self.end,
-        #     values=gesture_options,
-        #     width=150
-        # )
-        # end_gesture_menu.grid(row=2, column=1, padx=(0, 20), pady=5, sticky="w")
 
         # Selected file label
         file_label = ctk.CTkLabel(
@@ -256,7 +217,7 @@ class VideoSplitterApp:
         # Version info
         info_label = ctk.CTkLabel(
             footer_frame,
-            text="Video to Multiple Short Videos App v1.1",
+            text="E-commerce Livestream Segmentor v2.0",
             font=ctk.CTkFont(size=12),
             text_color="gray"
         )
@@ -265,7 +226,7 @@ class VideoSplitterApp:
         # Description
         desc_label = ctk.CTkLabel(
             footer_frame,
-            text="Easily split your videos into shorter clips!",
+            text="Easily split your videos into shorter clips using hand signs!",
             font=ctk.CTkFont(size=12),
             text_color="gray"
         )
@@ -332,7 +293,6 @@ class VideoSplitterApp:
         self.sign_main_frame.grid_rowconfigure(0, weight=0)  # Header with back button
         self.sign_main_frame.grid_rowconfigure(1, weight=1)  # Drag area
         self.sign_main_frame.grid_rowconfigure(2, weight=0)  # File label
-        # self.custom_input_frame.grid_rowconfigure(3, weight=0)  # Custom sign upload area
         self.sign_main_frame.grid_rowconfigure(4, weight=0)  # Execute button
         self.sign_main_frame.grid_rowconfigure(5, weight=0)  # Footer
 
@@ -389,7 +349,7 @@ class VideoSplitterApp:
         # Upload button for start sign
         start_upload_btn = ctk.CTkButton(
             start_sign_container,
-            text="Upload Start Sign",
+            text="Upload Your Sign",
             command=lambda: self.select_custom_sign("start"),
             font=ctk.CTkFont(size=12)
         )
@@ -423,7 +383,7 @@ class VideoSplitterApp:
         # Version info
         info_label = ctk.CTkLabel(
             footer_frame,
-            text="Video to Multiple Short Videos App v1.1",
+            text="E-commerce Livestream Segmentor v2.0",
             font=ctk.CTkFont(size=12),
             text_color="gray"
         )
@@ -640,8 +600,6 @@ class VideoSplitterApp:
         # Add the options
         for option in options:
             if self.gesture_icons.get(option):
-                # This is a workaround as tk.Menu doesn't directly support custom widgets
-                # You would need to implement a custom dropdown with icons for a true icon menu
                 menu.add_command(
                     label=f" {option}",
                     command=lambda opt=option: self.update_combobox(combo_frame, variable, opt)
@@ -770,24 +728,20 @@ class VideoSplitterApp:
             self.selected_file.set(file_path)
 
     def select_custom_sign(self, sign_type):
-        """Open file dialog to select a custom sign image.
-
-        Args:
-            sign_type: 'start' or 'end' to specify which sign to update
-        """
+        """Open file dialog to select a custom sign image and save it as PNG to preserve transparency."""
         file_path = filedialog.askopenfilename(
-            filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif")]
+            filetypes=[("PNG files", "*.png"), ("GIF files", "*.gif"), ("All Image Files", "*.png;*.gif;*.jpg;*.jpeg")]
         )
 
         if not file_path:
             return
 
         try:
-            # Check if 'sign' directory exists, if not create it
+            # Check if 'signs' directory exists, create it if it doesn't
             if not os.path.exists(ref_signs_folder):
                 os.makedirs(ref_signs_folder)
 
-            # Destination file name based on sign type
+            # Destination path (always save as PNG)
             dest_path = os.path.join(ref_signs_folder, sign_filename)
 
             # Copy the image file to the signs directory
@@ -797,7 +751,7 @@ class VideoSplitterApp:
             # Update the appropriate variable
             if sign_type == "start":
                 self.custom_start_image = dest_path
-                self._update_sign_display(self.start_sign_display, self.start_sign_widget, dest_path, sign_type)
+            self._update_sign_display(self.start_sign_display, self.start_sign_widget, dest_path, sign_type)
             self.sign_detector.initialize()
 
             print(f"Custom {sign_type} sign image saved to: {dest_path}")
@@ -827,7 +781,6 @@ class VideoSplitterApp:
             pil_image = Image.open(image_path)
 
             # Resize image to fit the display
-
             max_size = 200  # Slightly smaller than the 150px container
             img_width, img_height = pil_image.size
             scale = min(max_size / img_width, max_size / img_height)
@@ -871,13 +824,14 @@ class VideoSplitterApp:
                 self.custom_start_image = None
 
     def _remove_sign_image(self, sign_type):
-        """Remove the custom sign image.
+        """Remove the custom sign image and related files with enhanced debugging.
 
         Args:
             sign_type: 'start' or 'end' to specify which sign to remove
         """
         try:
-            # Clear the image from memory
+
+            # Clear the image from memory and reset display
             if sign_type == "start":
                 self.custom_start_image = None
                 # Reset display
@@ -888,29 +842,28 @@ class VideoSplitterApp:
                     text_color="gray"
                 )
                 self.start_sign_widget.place(relx=0.5, rely=0.5, anchor="center")
-            # else:
-            #     self.custom_end_image = None
-            #     # Reset display
-            #     self.end_sign_widget.destroy()
-            #     self.end_sign_widget = ctk.CTkLabel(
-            #         self.end_sign_display,
-            #         text="No image selected",
-            #         text_color="gray"
-            #     )
-            #     self.end_sign_widget.place(relx=0.5, rely=0.5, anchor="center")
 
-            # Optionally delete the files
-            if sign_path and os.path.exists(sign_path):
-                os.remove(sign_path)
-                print(f"Removed {sign_type} sign image: {sign_path}")
+            # Function to safely delete files with logging
+            def _safe_delete(path, description):
+                if path:  # Check if path is not None or empty
+                    if os.path.exists(path):
+                        try:
+                            os.remove(path)
+                            return True  # Indicate successful deletion
+                        except OSError as e:
+                            messagebox.showerror("Error", f"Failed to remove {description} {path}: {e}")
+                            return False  # Indicate failure
+                    else:
+                        print(f"Warning: {description} {path} does not exist.")
+                        return True  # Indicate that it is already deleted
+                else:
+                    print(f"Info: {description} path is None/empty, skipping deletion.")
+                    return True  # Nothing to delete, so consider it "successful"
 
-            if model_path and os.path.exists(model_path):
-                os.remove(model_path)
-                print(f"Removed: {model_path}")
-
-            if keypoint_path and os.path.exists(keypoint_path):
-                os.remove(keypoint_path)
-                print(f"Removed: {keypoint_path}")
+            # Delete files
+            _safe_delete(sign_path, "sign image")
+            _safe_delete(model_path, "model")
+            _safe_delete(keypoint_path, "keypoint")
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to remove sign image: {str(e)}")
@@ -937,14 +890,11 @@ class VideoSplitterApp:
         if not self.selected_file.get():
             messagebox.showwarning("No File", "Please select a video first!")
             return
-        # if self.mode.get() == "hand_sign":
-        #     if start_sign == "Select Start Gesture":
-        #         messagebox.showwarning("No Gesture", "Please select start gesture!")
-        #         return
         if self.mode.get() == "custom_sign":
             if not self.sign_detector.initialize():
                 messagebox.showwarning("No Sign Found", "No custom sign found! Aborting video processing...")
                 return
+        # self.sign_detector.run_camera_detection()
         self.show_frame(self.loading_frame)
         run_main_in_thread(self)
 
@@ -952,6 +902,38 @@ class VideoSplitterApp:
         """Display the results screen with processed videos."""
         self.populate_videos()
         self.show_frame(self.results_frame)
+
+    def generate_thumbnail(self, video_path, max_size=(180, 120)):
+        """Generate a proportional thumbnail image from a random frame in the video."""
+        try:
+            cap = cv2.VideoCapture(video_path)
+            if not cap.isOpened():
+                return None
+
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            if total_frames <= 0:
+                return None
+
+            import random
+            frame_number = random.randint(0, total_frames - 1)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+
+            ret, frame = cap.read()
+            if not ret:
+                return None
+
+            # Convert BGR to RGB
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            pil_image = Image.fromarray(frame_rgb)
+
+            # Resize while keeping aspect ratio
+            pil_image.thumbnail(max_size, Image.Resampling.LANCZOS)
+
+            cap.release()
+            return pil_image
+        except Exception as e:
+            print(f"Error generating thumbnail for {video_path}: {e}")
+            return None
 
     def populate_videos(self):
         """Create video thumbnail entries from real videos in the results screen."""
@@ -1008,18 +990,33 @@ class VideoSplitterApp:
             # Configure video frame for centering content
             video_frame.grid_columnconfigure(0, weight=1)
 
-            # Placeholder for video thumbnail (still using placeholder since generating
-            # actual thumbnails requires additional processing)
-            thumbnail = ctk.CTkLabel(
-                video_frame,
-                text="[Video Thumbnail]",
-                fg_color="#E8ECEF",
-                text_color="#606770",
-                width=180,
-                height=120,
-                corner_radius=4
-            )
-            thumbnail.grid(row=0, column=0, padx=10, pady=10, sticky="ew")
+            # Generate and display thumbnail
+            thumbnail_image = self.generate_thumbnail(video_path)
+            if thumbnail_image:
+                # Use actual image size to preserve aspect ratio
+                ctk_image = ctk.CTkImage(
+                    light_image=thumbnail_image,
+                    dark_image=thumbnail_image,
+                    size=thumbnail_image.size
+                )
+                thumbnail = ctk.CTkLabel(
+                    video_frame,
+                    image=ctk_image,
+                    text="",
+                    corner_radius=4
+                )
+            else:
+                # Fallback placeholder if thumbnail generation fails
+                thumbnail = ctk.CTkLabel(
+                    video_frame,
+                    text="[Thumbnail Error]",
+                    fg_color="#E8ECEF",
+                    text_color="#606770",
+                    width=180,
+                    height=120,
+                    corner_radius=4
+                )
+            thumbnail.grid(row=0, column=0, padx=10, pady=(20, 10), sticky="ew")
 
             # Video title (actual filename)
             title = ctk.CTkLabel(
@@ -1049,7 +1046,7 @@ class VideoSplitterApp:
             button_frame.grid_columnconfigure(1, weight=1)
             button_frame.grid_columnconfigure(2, weight=1)
 
-            # Play button - replace embed button
+            # Play button
             play_btn = ctk.CTkButton(
                 button_frame,
                 text="Play",
@@ -1060,7 +1057,7 @@ class VideoSplitterApp:
             )
             play_btn.grid(row=0, column=0, padx=2, pady=5)
 
-            # Open folder button - replace edit button
+            # Open folder button
             folder_btn = ctk.CTkButton(
                 button_frame,
                 text="Folder",
@@ -1169,6 +1166,3 @@ class VideoSplitterApp:
             self.custom_start_image = path_to_sign
             self._update_sign_display(self.start_sign_display, self.start_sign_widget, path_to_sign, "start")
             self.sign_detector.initialize()
-            # self.sign_detector.run_camera_detection()
-
-

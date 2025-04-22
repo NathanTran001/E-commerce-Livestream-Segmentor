@@ -21,7 +21,7 @@ from utils.hand_gesture import process_segment_with_hand
 from utils.sign_detector import process_segment_with_sign
 from utils.timestamps import normalize_timestamps, calculate_segment_boundaries
 
-pose_duration = 1
+pose_duration = 0.9
 time_between_batches = pose_duration * 0.3
 
 try:
@@ -130,7 +130,6 @@ def process_video_parallel(app, video_path, num_segments, start_sign, end_sign):
     all_ends.sort()
 
     # Normalize timestamps if needed
-    print(f"TUNG TUNG TUNG {time_between_batches}")
     all_starts = normalize_timestamps(all_starts, time_between_batches, pose_duration)
     print(f"process_video_parallel: End before normalize: {all_ends}")
     all_ends = normalize_timestamps(all_ends, time_between_batches, pose_duration)
@@ -161,9 +160,8 @@ def main(app):
 
     # Get available CPU cores (or use a reasonable default)
     num_cores = mtp.cpu_count()
-    print(f"num_cores: {num_cores}")
     # Use slightly fewer cores than available to avoid overloading the system
-    num_segments = max(2, num_cores - 4)
+    num_segments = max(2, int(num_cores))
     cap = cv2.VideoCapture(video_path)
 
     if not cap.isOpened():
@@ -191,6 +189,9 @@ def main(app):
     if not timestamps_start:
         print("No start points found")
         app.show_results()
+        end_time = time.perf_counter()
+        execution_time = end_time - start_time
+        print(f"Execution time: {execution_time:.2f} seconds")
         return
 
     # Convert to string with a specific format

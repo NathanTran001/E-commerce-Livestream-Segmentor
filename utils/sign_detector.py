@@ -64,6 +64,7 @@ class SignDetector:
 
         # Pre-compute scales for multi-scale matching
         self.scales = [0.75, 1.0, 1.25]  # Reduced number of scales for speed
+
     def select_reference_image(self):
         """Open a file dialog to select reference sign image"""
         root = tk.Tk()
@@ -108,8 +109,8 @@ class SignDetector:
         # 3. Extract color histograms (for color robustness)
         self._extract_color_histograms(self.reference_image)
 
-        # Save reference image
-        cv2.imwrite(f"{ref_signs_folder}/{sign_filename}", self.reference_image)
+        # Do not uncomment
+        # cv2.imwrite(f"{ref_signs_folder}/{sign_filename}", self.reference_image)
 
         # Create visualization of keypoints (optional)
         keypoints_image = cv2.drawKeypoints(self.reference_image, self.reference_keypoints, None,
@@ -277,6 +278,155 @@ class SignDetector:
             print(f"Error loading model: {str(e)}")
             return False
 
+    def _color_similarity(self, frame):
+        """Calculate color similarity between reference and frame"""
+        if not self.reference_histograms:
+            return 0.0
+
+        h, w = frame.shape[:2]
+        cell_h, cell_w = h // self.hist_grid_size[0], w // self.hist_grid_size[1]
+
+        # Convert to HSV
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+        similarities = []
+
+        # For each cell
+        for i in range(self.hist_grid_size[0]):
+            for j in range(self.hist_grid_size[1]):
+                # Get cell coordinates
+                y_start = i * cell_h
+                y_end = (i + 1) * cell_h if i < self.hist_grid_size[0] - 1 else h
+                x_start = j * cell_w
+                x_end = (j + 1) * cell_w if j < self.hist_grid_size[1] - 1 else w
+
+                # Extract region
+                cell = hsv[y_start:y_end, x_start:x_end]
+
+                # Calculate histogram
+                hist = cv2.calcHist([cell], [0, 1], None,
+                                    [self.histogram_bins, self.histogram_bins],
+                                    [0, 180, 0, 256])
+
+                cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX)
+
+                # Get index in reference histograms
+                idx = i * self.hist_grid_size[1] + j
+                if idx < len(self.reference_histograms):
+                    # Compare histograms
+                    similarity = cv2.compareHist(self.reference_histograms[idx], hist, cv2.HISTCMP_CORREL)
+                    similarities.append(similarity)
+
+        # Average similarity
+        if similarities:
+            return sum(similarities) / len(similarities)
+        return 0.0
+
+    def run_camera_detection(self):
+        """Run sign detection using the webcam"""
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            print("Error: Could not open camera")
+            return
+
+        print("\n===== CAMERA DETECTION STARTED =====")
+        print("Press 'q' to quit")
+        print("Press 's' to save a screenshot")
+        print("Press 't'/'T' to decrease/increase detection threshold")
+        print(f"Current threshold: {self.match_threshold:.2f}")
+        print("===================================\n")
+
+        # Keep track of recent confidence scores for smoothing
+        confidence_history = []
+        history_size = 5
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                print("Error: Could not read frame")
+                break
+
+            display_frame = frame.copy()
+
+            # Detect sign with best matches and keypoints
+            confidence, matches, frame_keypoints = self.detect_sign(frame)
+
+            # Add to history and maintain fixed size
+            confidence_history.append(confidence)
+            if len(confidence_history) > history_size:
+                confidence_history.pop(0)
+
+            # Use average confidence for stability
+            avg_confidence = sum(confidence_history) / len(confidence_history)
+
+            # Display confidence value in corner for debugging
+            cv2.putText(display_frame, f"Conf: {avg_confidence:.2f}",
+                        (display_frame.shape[1] - 150, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+            # If sign is detected with good confidence
+            if avg_confidence >= self.match_threshold:
+                # Draw green border around entire frame
+                h, w = display_frame.shape[:2]
+                cv2.rectangle(display_frame, (0, 0), (w - 1, h - 1), (0, 255, 0), 10)
+
+                # Add text to the frame
+                cv2.putText(display_frame, "Sign Detected!",
+                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+                # Draw matches if available
+                if len(matches) > 0 and self.reference_image is not None and len(frame_keypoints) > 0:
+                    try:
+                        # Draw top 15 matches in a separate window for visualization
+                        top_matches = sorted(matches, key=lambda x: x.distance)[:15]
+                        matches_img = cv2.drawMatches(
+                            self.reference_image, self.reference_keypoints,
+                            frame, frame_keypoints,
+                            top_matches, None,
+                            flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
+                        )
+                        cv2.imshow('Sign Matches', matches_img)
+                    except Exception as e:
+                        print(f"Error drawing matches: {str(e)}")
+
+            # Add threshold info at bottom
+            cv2.putText(display_frame, f"Threshold: {self.match_threshold:.2f} (t/T to adjust)",
+                        (10, display_frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+            # Show the frame
+            cv2.imshow('Sign Detector', display_frame)
+
+            # Check for key presses
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
+                break
+            elif key == ord('s'):
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                screenshot_path = f"sign_detection_{timestamp}.jpg"
+                cv2.imwrite(screenshot_path, display_frame)
+                print(f"Screenshot saved to {screenshot_path}")
+            elif key == ord('t'):
+                self.match_threshold = max(0.1, self.match_threshold - 0.05)
+                print(f"Reduced confidence threshold to: {self.match_threshold:.2f}")
+            elif key == ord('T'):
+                self.match_threshold = min(0.9, self.match_threshold + 0.05)
+                print(f"Increased confidence threshold to: {self.match_threshold:.2f}")
+
+        # Release resources
+        cap.release()
+        cv2.destroyAllWindows()
+
+    def initialize(self):
+        # Try to load existing model first
+        if not self.load_model():
+            if self.process_reference_image():
+                self.save_model()
+                return True
+            else:
+                messagebox.showwarning("No Sign Found", "No existing sign or error loading sign!")
+                return False
+        return True
+
     def detect_sign(self, frame):
         """
         Detect the sign in a frame using optimized feature matching
@@ -404,156 +554,8 @@ class SignDetector:
 
         return best_confidence, best_matches, best_frame_keypoints
 
-    def _color_similarity(self, frame):
-        """Calculate color similarity between reference and frame"""
-        if not self.reference_histograms:
-            return 0.0
 
-        h, w = frame.shape[:2]
-        cell_h, cell_w = h // self.hist_grid_size[0], w // self.hist_grid_size[1]
-
-        # Convert to HSV
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-
-        similarities = []
-
-        # For each cell
-        for i in range(self.hist_grid_size[0]):
-            for j in range(self.hist_grid_size[1]):
-                # Get cell coordinates
-                y_start = i * cell_h
-                y_end = (i + 1) * cell_h if i < self.hist_grid_size[0] - 1 else h
-                x_start = j * cell_w
-                x_end = (j + 1) * cell_w if j < self.hist_grid_size[1] - 1 else w
-
-                # Extract region
-                cell = hsv[y_start:y_end, x_start:x_end]
-
-                # Calculate histogram
-                hist = cv2.calcHist([cell], [0, 1], None,
-                                    [self.histogram_bins, self.histogram_bins],
-                                    [0, 180, 0, 256])
-
-                cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX)
-
-                # Get index in reference histograms
-                idx = i * self.hist_grid_size[1] + j
-                if idx < len(self.reference_histograms):
-                    # Compare histograms
-                    similarity = cv2.compareHist(self.reference_histograms[idx], hist, cv2.HISTCMP_CORREL)
-                    similarities.append(similarity)
-
-        # Average similarity
-        if similarities:
-            return sum(similarities) / len(similarities)
-        return 0.0
-    def run_camera_detection(self):
-        """Run sign detection using the webcam"""
-        cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
-            print("Error: Could not open camera")
-            return
-
-        print("\n===== CAMERA DETECTION STARTED =====")
-        print("Press 'q' to quit")
-        print("Press 's' to save a screenshot")
-        print("Press 't'/'T' to decrease/increase detection threshold")
-        print(f"Current threshold: {self.match_threshold:.2f}")
-        print("===================================\n")
-
-        # Keep track of recent confidence scores for smoothing
-        confidence_history = []
-        history_size = 5
-
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                print("Error: Could not read frame")
-                break
-
-            display_frame = frame.copy()
-
-            # Detect sign with best matches and keypoints
-            confidence, matches, frame_keypoints = self.detect_sign(frame)
-
-            # Add to history and maintain fixed size
-            confidence_history.append(confidence)
-            if len(confidence_history) > history_size:
-                confidence_history.pop(0)
-
-            # Use average confidence for stability
-            avg_confidence = sum(confidence_history) / len(confidence_history)
-
-            # Display confidence value in corner for debugging
-            cv2.putText(display_frame, f"Conf: {avg_confidence:.2f}",
-                        (display_frame.shape[1] - 150, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-
-            # If sign is detected with good confidence
-            if avg_confidence >= self.match_threshold:
-                # Draw green border around entire frame
-                h, w = display_frame.shape[:2]
-                cv2.rectangle(display_frame, (0, 0), (w - 1, h - 1), (0, 255, 0), 10)
-
-                # Add text to the frame
-                cv2.putText(display_frame, "Sign Detected!",
-                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-
-                # Draw matches if available
-                if len(matches) > 0 and self.reference_image is not None and len(frame_keypoints) > 0:
-                    try:
-                        # Draw top 15 matches in a separate window for visualization
-                        top_matches = sorted(matches, key=lambda x: x.distance)[:15]
-                        matches_img = cv2.drawMatches(
-                            self.reference_image, self.reference_keypoints,
-                            frame, frame_keypoints,
-                            top_matches, None,
-                            flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS
-                        )
-                        cv2.imshow('Sign Matches', matches_img)
-                    except Exception as e:
-                        print(f"Error drawing matches: {str(e)}")
-
-            # Add threshold info at bottom
-            cv2.putText(display_frame, f"Threshold: {self.match_threshold:.2f} (t/T to adjust)",
-                        (10, display_frame.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-
-            # Show the frame
-            cv2.imshow('Sign Detector', display_frame)
-
-            # Check for key presses
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
-                break
-            elif key == ord('s'):
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                screenshot_path = f"sign_detection_{timestamp}.jpg"
-                cv2.imwrite(screenshot_path, display_frame)
-                print(f"Screenshot saved to {screenshot_path}")
-            elif key == ord('t'):
-                self.match_threshold = max(0.1, self.match_threshold - 0.05)
-                print(f"Reduced confidence threshold to: {self.match_threshold:.2f}")
-            elif key == ord('T'):
-                self.match_threshold = min(0.9, self.match_threshold + 0.05)
-                print(f"Increased confidence threshold to: {self.match_threshold:.2f}")
-
-        # Release resources
-        cap.release()
-        cv2.destroyAllWindows()
-
-    def initialize(self):
-        # Try to load existing model first
-        if not self.load_model():
-            if self.process_reference_image():
-                self.save_model()
-                return True
-            else:
-                messagebox.showwarning("No Sign Found", "No existing sign or error loading sign!")
-                return False
-        return True
-
-
-def process_segment_with_sign(start_time, end_time, video_path, visualize=True):
+def process_segment_with_sign(start_time, end_time, video_path, visualize=False):
     """
     Process a specific segment of the video, focusing only on frame-by-frame detection.
     Records every timestamp where a sign is detected.
@@ -590,9 +592,6 @@ def process_segment_with_sign(start_time, end_time, video_path, visualize=True):
     timestamps_end = []  # Will be returned empty as requested
     frame_skip = calculate_frames_to_skip(frame_rate)
 
-    print(f"Processing segment from {start_time:.2f}s to {end_time:.2f}s")
-    print(f"Frame skip: {frame_skip}")
-
     while frame_count < end_frame:
         ret, frame = cap.read()
         if not ret:
@@ -610,9 +609,6 @@ def process_segment_with_sign(start_time, end_time, video_path, visualize=True):
 
             # Detect sign - direct raw confidence
             confidence, matches, frame_keypoints = detector.detect_sign(frame)
-
-            # Debug information
-            print(f"Frame {frame_count}, Time: {timestamp:.2f}s, Confidence: {confidence:.2f}")
 
             # Simple frame-by-frame detection
             if confidence >= detector.match_threshold:
@@ -678,5 +674,4 @@ def process_segment_with_sign(start_time, end_time, video_path, visualize=True):
     if visualize:
         cv2.destroyAllWindows()
 
-    print(f"Found {len(timestamps_start)} frames with sign detected")
     return timestamps_start, timestamps_end

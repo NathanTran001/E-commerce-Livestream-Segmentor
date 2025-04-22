@@ -94,7 +94,6 @@ def process_segment_with_hand(start_time, end_time, video_path, start_sign, end_
         if frame_count % frame_skip == 0:
 
             timestamp = frame_count / frame_rate
-            # print(f"{timestamp}")
 
             image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
             results = hands.process(image)
