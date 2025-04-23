@@ -105,6 +105,8 @@ def process_video_parallel(app, video_path, num_segments, start_sign, end_sign):
 
     # Create a pool of worker processes
     pool = mtp.Pool(processes=min(mtp.cpu_count(), num_segments))
+    print(f"pose duration: {pose_duration}")
+    print(f"time_between_batches: {time_between_batches}")
 
     process_segment = partial(process_segment_with_hand, video_path=video_path, start_sign=start_sign, end_sign=end_sign)
     if app.mode.get() == "custom_sign":
@@ -161,7 +163,7 @@ def main(app):
     # Get available CPU cores (or use a reasonable default)
     num_cores = mtp.cpu_count()
     # Use slightly fewer cores than available to avoid overloading the system
-    num_segments = max(2, int(num_cores))
+    num_segments = max(2, int(num_cores - 1))
     cap = cv2.VideoCapture(video_path)
 
     if not cap.isOpened():

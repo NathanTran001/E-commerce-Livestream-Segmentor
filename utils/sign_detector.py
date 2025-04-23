@@ -116,6 +116,7 @@ class SignDetector:
         keypoints_image = cv2.drawKeypoints(self.reference_image, self.reference_keypoints, None,
                                             flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
         cv2.imwrite(f"{ref_keypoints_folder}/{ref_keypoints_filename}", keypoints_image)
+        self.save_grid_visualization()
 
         print(f"Processed reference image with:")
         print(f"- {len(self.reference_keypoints)} ORB features")
@@ -553,6 +554,44 @@ class SignDetector:
                 continue
 
         return best_confidence, best_matches, best_frame_keypoints
+
+    def save_grid_visualization(self):
+        """
+        Create and save a visualization of the grid structure on the reference image
+        """
+        if self.reference_image is None:
+            print("No reference image available")
+            return False
+
+        # Create a copy of the reference image
+        grid_vis = self.reference_image.copy()
+        h, w = grid_vis.shape[:2]
+        cell_h, cell_w = h // self.grid_size[0], w // self.grid_size[1]
+
+        # Draw grid lines
+        # Horizontal lines
+        for i in range(1, self.grid_size[0]):
+            y = i * cell_h
+            cv2.line(grid_vis, (0, y), (w, y), (0, 255, 0), 2)
+
+        # Vertical lines
+        for j in range(1, self.grid_size[1]):
+            x = j * cell_w
+            cv2.line(grid_vis, (x, 0), (x, h), (0, 255, 0), 2)
+
+        # Draw cell numbers
+        for i in range(self.grid_size[0]):
+            for j in range(self.grid_size[1]):
+                cell_center_x = j * cell_w + cell_w // 2
+                cell_center_y = i * cell_h + cell_h // 2
+                cv2.putText(grid_vis, f"{i},{j}", (cell_center_x - 20, cell_center_y),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+
+        # Save the visualization
+        cv2.imwrite(f"{ref_keypoints_folder}/{grid_vis_filename}", grid_vis)
+        print(f"Grid visualization saved to {ref_keypoints_folder}/{grid_vis_filename}")
+
+        return True
 
 
 def process_segment_with_sign(start_time, end_time, video_path, visualize=False):
